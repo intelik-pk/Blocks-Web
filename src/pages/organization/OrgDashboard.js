@@ -1,0 +1,839 @@
+import React, { useState, useEffect } from 'react';
+import { useQuery } from 'react-query';
+import { useNavigate } from 'react-router-dom';
+import { 
+  Users, 
+  Building2, 
+  TrendingUp, 
+  DollarSign, 
+  Activity,
+  BarChart3,
+  Shield,
+  LogOut,
+  ArrowUpRight,
+  Calendar,
+  User
+} from 'lucide-react';
+import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
+import Badge from '../../components/ui/Badge';
+import ThemeToggle from '../../components/ThemeToggle';
+import SafeOrgAdminNotificationIcon from '../../components/organization/SafeOrgAdminNotificationIcon';
+import { organizationsAPI, adminAPI } from '../../services/api';
+import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
+import OrgPropertiesManagement from './OrgPropertiesManagement';
+import OrgUsersManagement from './OrgUsersManagement';
+import OrgTransactionsManagement from './OrgTransactionsManagement';
+import OrgInvestmentsManagement from './OrgInvestmentsManagement';
+import OrgProfile from './OrgProfile';
+
+const OrgDashboard = () => {
+  const [activeTab, setActiveTab] = useState('overview');
+  const { organizationUser, isAuthenticated, logout } = useOrganizationAuth();
+  const navigate = useNavigate();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/org/login');
+    }
+  }, [isAuthenticated, navigate]);
+
+  // Get organization info
+  const organizationName = organizationUser?.organizationName || 'Organization';
+  const organizationSlug = organizationUser?.organizationSlug || '';
+  const organizationId = organizationUser?.organizationId || '';
+
+  // Update browser tab title with organization name
+  useEffect(() => {
+    if (organizationName) {
+      document.title = `${organizationName} - Organization Dashboard`;
+    }
+    return () => {
+      document.title = 'HMR Platform'; // Reset on unmount
+    };
+  }, [organizationName]);
+
+  // Debug: Log organization info
+  useEffect(() => {
+    console.log('🏢 Current Organization Info:', {
+      name: organizationName,
+      slug: organizationSlug,
+      id: organizationId,
+      email: organizationUser?.email,
+      fullData: organizationUser
+    });
+  }, [organizationName, organizationSlug, organizationId, organizationUser]);
+
+  // Fetch organization details
+  const { data: orgData, isLoading: orgLoading } = useQuery(
+    ['org-details', organizationId],
+    async () => {
+      console.log('🔄 Fetching organization details for ID:', organizationId);
+      const response = await organizationsAPI.getById(organizationId);
+      console.log('✅ Organization details:', response);
+      return response;
+    },
+    { 
+      refetchInterval: 30000,
+      enabled: isAuthenticated && !!organizationId,
+      retry: 1,
+      onError: (error) => {
+        console.log('Organization API error:', error.message);
+      }
+    }
+  );
+
+  // Fetch comprehensive dashboard data using REAL admin/dashboard endpoint
+  const { data: dashboardData, isLoading: dashboardDataLoading } = useQuery(
+    ['org-dashboard-data', organizationId],
+    async () => {
+      try {
+        console.log(`🔄 Fetching ORGANIZATION-SPECIFIC dashboard for ${organizationName} (${organizationId})`);
+        // Uses: GET /admin/dashboard?organizationId={organizationId}
+        // Returns: Organization details, properties, investments, transactions, liquidity, investors
+        const response = await organizationsAPI.getDashboard(organizationId);
+        console.log(`✅ Dashboard Data for ${organizationName}:`, response.data);
+        return response;
+      } catch (error) {
+        console.error(`❌ Dashboard fetch error for ${organizationName}:`, error);
+        return null;
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId,
+      retry: 1
+    }
+  );
+
+  // Fetch organization transactions using REAL endpoint
+  // GET /organizations/:id/transactions
+  const { data: transactionsData, error: transactionsError } = useQuery(
+    ['org-transactions-count', organizationId],
+    async () => {
+      console.log(`💳 Fetching ONLY ${organizationName} transactions via GET /organizations/${organizationId}/transactions`);
+      const response = await organizationsAPI.getTransactions(organizationId);
+      const transactions = response.data?.transactions || response.data?.data?.transactions || response.data?.data || [];
+      console.log(`✅ Fetched ${Array.isArray(transactions) ? transactions.length : 0} transactions for ${organizationName} (${organizationId})`);
+      console.log('Transaction data structure:', response.data);
+      return response;
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId,
+      retry: 1,
+      onError: (error) => {
+        console.error(`❌ Transactions fetch error for ${organizationName}:`, error);
+        console.error('Error details:', error.response?.data || error.message);
+      }
+    }
+  );
+
+  // Fetch organization liquidity/analytics
+  const { data: liquidityData } = useQuery(
+    ['org-liquidity', organizationId],
+    async () => {
+      try {
+        console.log('🔄 Fetching liquidity analytics for organization:', organizationId);
+        const response = await organizationsAPI.getLiquidity(organizationId);
+        console.log('✅ Liquidity data:', response);
+        return response;
+      } catch (error) {
+        console.log('ℹ️ Liquidity endpoint error:', error.message);
+        return null;
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId,
+      retry: 1
+    }
+  );
+
+  // Fetch properties using REAL organization API
+  // GET /properties?org=ORG-000001
+  const { data: propertiesCountData } = useQuery(
+    ['org-properties-count', organizationId],
+    async () => {
+      try {
+        console.log(`🏢 Fetching ONLY ${organizationName} properties via GET /properties?org=${organizationId}`);
+        // Use organizationsAPI.getProperties (GET /properties?org=ORG-000001)
+        const response = await organizationsAPI.getProperties(organizationId, { limit: 1000 });
+        const properties = response.data?.properties || response.data?.data?.properties || response.data || [];
+        console.log(`✅ Fetched ${Array.isArray(properties) ? properties.length : 0} properties for ${organizationName} (${organizationId})`);
+        return response;
+      } catch (error) {
+        console.error(`❌ Properties fetch error for ${organizationName}:`, error);
+        return { data: [] };
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId && !dashboardDataLoading,
+      retry: 1
+    }
+  );
+
+  // Fetch users (investors) using REAL organization API
+  // GET /admin/users?org=ORG-000001
+  const { data: usersCountData } = useQuery(
+    ['org-users-count', organizationId],
+    async () => {
+      try {
+        console.log(`👥 Fetching ONLY ${organizationName} investors via GET /admin/users?org=${organizationId}`);
+        // Use organizationsAPI.getUsers (GET /admin/users?org=ORG-000001)
+        const response = await organizationsAPI.getUsers(organizationId, { limit: 1000 });
+        const users = response.data?.users || response.data?.data?.users || response.data || [];
+        console.log(`✅ Fetched ${Array.isArray(users) ? users.length : 0} investors for ${organizationName} (${organizationId})`);
+        return response;
+      } catch (error) {
+        console.error(`❌ Users fetch error for ${organizationName}:`, error);
+        return { data: [] };
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId && !dashboardDataLoading,
+      retry: 1
+    }
+  );
+
+  // Fetch investments using REAL organization API
+  // GET /investments?org=ORG-000001
+  const { data: investmentsCountData } = useQuery(
+    ['org-investments-count', organizationId],
+    async () => {
+      try {
+        console.log(`💰 Fetching ONLY ${organizationName} investments via GET /investments?org=${organizationId}`);
+        // Use organizationsAPI.getInvestments (GET /investments?org=ORG-000001)
+        const response = await organizationsAPI.getInvestments(organizationId, { limit: 1000 });
+        const investments = response.data?.investments || response.data?.data?.investments || response.data || [];
+        console.log(`✅ Fetched ${Array.isArray(investments) ? investments.length : 0} investments for ${organizationName} (${organizationId})`);
+        return response;
+      } catch (error) {
+        console.error(`❌ Investments fetch error for ${organizationName}:`, error);
+        return { data: [] };
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId && !dashboardDataLoading,
+      retry: 1
+    }
+  );
+
+  // ALSO fetch Investment Analytics for more accurate totals
+  // GET /investments/analytics/organization/:orgId
+  const { data: investmentAnalyticsData } = useQuery(
+    ['org-investment-analytics', organizationId],
+    async () => {
+      try {
+        console.log(`📊 Fetching investment analytics via GET /investments/analytics/organization/${organizationId}`);
+        const response = await organizationsAPI.getInvestmentAnalytics(organizationId);
+        const analytics = response.data?.analytics || response.data?.data?.analytics || {};
+        console.log(`✅ Investment Analytics for ${organizationName}:`, analytics);
+        return response;
+      } catch (error) {
+        console.error(`❌ Investment Analytics fetch error:`, error);
+        return null;
+      }
+    },
+    { 
+      enabled: isAuthenticated && !!organizationId && !dashboardDataLoading,
+      retry: 1
+    }
+  );
+
+  // Calculate statistics from fetched data
+  // GET /organizations/:id/transactions returns: { success: true, transactions: [...] }
+  const transactions = transactionsData?.data?.transactions || 
+                      transactionsData?.data?.data?.transactions || 
+                      transactionsData?.data?.data || 
+                      [];
+  const properties = propertiesCountData?.data?.properties || 
+                    propertiesCountData?.data?.data?.properties || 
+                    propertiesCountData?.data || 
+                    [];
+  const users = usersCountData?.data?.users || 
+               usersCountData?.data?.data?.users || 
+               usersCountData?.data || 
+               [];
+  const investments = investmentsCountData?.data?.investments || 
+                     investmentsCountData?.data?.data?.investments || 
+                     investmentsCountData?.data || 
+                     [];
+  
+  // Parse dashboard data from /admin/dashboard?organizationId={id}
+  // According to API docs, returns: Organization details, properties, investments, transactions, liquidity, investors
+  const dashboardStats = dashboardData?.data || null;
+  const dashboardOrgData = dashboardStats?.organization || null;
+  const dashboardProperties = dashboardStats?.properties || [];
+  const dashboardInvestments = dashboardStats?.investments || [];
+  const dashboardTransactions = dashboardStats?.transactions || [];
+  const dashboardInvestors = dashboardStats?.investors || [];
+  const dashboardLiquidity = dashboardStats?.liquidity || null;
+  
+  console.log('📊 Dashboard API Response (GET /admin/dashboard?organizationId=' + organizationId + '):', {
+    hasDashboardData: !!dashboardStats,
+    organizationDetails: dashboardOrgData,
+    propertiesCount: Array.isArray(dashboardProperties) ? dashboardProperties.length : 0,
+    investmentsCount: Array.isArray(dashboardInvestments) ? dashboardInvestments.length : 0,
+    transactionsCount: Array.isArray(dashboardTransactions) ? dashboardTransactions.length : 0,
+    investorsCount: Array.isArray(dashboardInvestors) ? dashboardInvestors.length : 0,
+    liquidity: dashboardLiquidity,
+    fullData: dashboardStats
+  });
+  
+  // Debug logging - ORGANIZATION-SPECIFIC DATA ONLY
+  console.log(`📊 ${organizationName} (${organizationId}) - ORGANIZATION-SPECIFIC Data Summary:`, {
+    organizationId,
+    organizationName,
+    note: '⚠️ ALL DATA IS FILTERED FOR THIS ORGANIZATION ONLY!',
+    transactions: {
+      count: Array.isArray(transactions) ? transactions.length : 0,
+      note: `Only ${organizationName}'s transactions`,
+      data: transactions
+    },
+    properties: {
+      count: Array.isArray(properties) ? properties.length : 0,
+      note: `Only ${organizationName}'s properties`,
+      data: properties
+    },
+    users: {
+      count: Array.isArray(users) ? users.length : 0,
+      note: `Only ${organizationName}'s users`,
+      data: users
+    },
+    investments: {
+      count: Array.isArray(investments) ? investments.length : 0,
+      note: `Only ${organizationName}'s investments`,
+      data: investments
+    }
+  });
+  
+  // Extract Investment Analytics data (has pre-calculated totals)
+  const investmentAnalytics = investmentAnalyticsData?.data?.analytics || investmentAnalyticsData?.data?.data?.analytics || {};
+  console.log('📊 Investment Analytics API Response:', {
+    analytics: investmentAnalytics,
+    hasAnalytics: Object.keys(investmentAnalytics).length > 0,
+    totalAmountUSDT: investmentAnalytics.totalAmountUSDT,
+    totalInvestments: investmentAnalytics.totalInvestments,
+    activeInvestments: investmentAnalytics.activeInvestments
+  });
+
+  // Helper function to extract investment amount (handles multiple field variations)
+  const getInvestmentAmount = (inv) => {
+    const amount = parseFloat(
+      inv.amountUSDT || 
+      inv.amount_usdt || 
+      inv.amount || 
+      inv.invested_amount || 
+      inv.investmentAmount || 
+      inv.tokensPurchased || 
+      0
+    );
+    console.log(`💰 Investment ${inv.id || inv.displayCode}: Amount = ${amount} (from field: ${inv.amountUSDT ? 'amountUSDT' : inv.amount_usdt ? 'amount_usdt' : inv.amount ? 'amount' : 'other'})`);
+    return amount;
+  };
+
+  // Helper function to extract transaction amount
+  const getTransactionAmount = (tx) => {
+    return parseFloat(
+      tx.amountUSDT || 
+      tx.amount_usdt || 
+      tx.amount || 
+      0
+    );
+  };
+
+  // Helper function to extract property value
+  const getPropertyValue = (prop) => {
+    return parseFloat(
+      prop.totalValueUSDT || 
+      prop.total_value_usdt || 
+      prop.totalValue || 
+      prop.total_value || 
+      prop.price || 
+      prop.pricePerTokenUSDT || 
+      0
+    );
+  };
+
+  // Prioritize Investment Analytics API for investment totals (most accurate)
+  const investmentTotalFromAnalytics = investmentAnalytics.totalAmountUSDT 
+    ? parseFloat(investmentAnalytics.totalAmountUSDT) 
+    : null;
+  const investmentCountFromAnalytics = investmentAnalytics.totalInvestments || null;
+  const activeInvestmentsFromAnalytics = investmentAnalytics.activeInvestments || null;
+  const pendingInvestmentsFromAnalytics = investmentAnalytics.pendingInvestments || null;
+
+  // Prioritize dashboard data from /admin/dashboard?organizationId={id}
+  // Then use Investment Analytics API, finally calculate from individual endpoints
+  const stats = dashboardStats ? {
+    // Use dashboard endpoint data (from /admin/dashboard?organizationId={id})
+    totalUsers: Array.isArray(dashboardInvestors) ? dashboardInvestors.length : (Array.isArray(users) ? users.length : 0),
+    totalProperties: Array.isArray(dashboardProperties) ? dashboardProperties.length : (Array.isArray(properties) ? properties.length : 0),
+    totalTransactions: Array.isArray(dashboardTransactions) ? dashboardTransactions.length : (Array.isArray(transactions) ? transactions.length : 0),
+    // PRIORITY: Investment Analytics > Dashboard > Manual calculation
+    totalInvestments: investmentTotalFromAnalytics !== null 
+      ? investmentTotalFromAnalytics
+      : (Array.isArray(dashboardInvestments) 
+        ? dashboardInvestments.reduce((sum, inv) => sum + getInvestmentAmount(inv), 0)
+        : (Array.isArray(investments) ? investments.reduce((sum, inv) => sum + getInvestmentAmount(inv), 0) : 0)),
+    totalInvestmentCount: investmentCountFromAnalytics !== null
+      ? investmentCountFromAnalytics
+      : (Array.isArray(dashboardInvestments) ? dashboardInvestments.length : (Array.isArray(investments) ? investments.length : 0)),
+    totalTransactionAmount: Array.isArray(dashboardTransactions) 
+      ? dashboardTransactions.reduce((sum, tx) => sum + getTransactionAmount(tx), 0)
+      : (Array.isArray(transactions) ? transactions.reduce((sum, tx) => sum + getTransactionAmount(tx), 0) : 0),
+    activeInvestments: activeInvestmentsFromAnalytics !== null
+      ? activeInvestmentsFromAnalytics
+      : (Array.isArray(dashboardInvestments) 
+        ? dashboardInvestments.filter(inv => inv.status === 'confirmed' || inv.status === 'active').length
+        : (Array.isArray(investments) ? investments.filter(inv => inv.status === 'active' || inv.status === 'approved' || inv.status === 'confirmed').length : 0)),
+    pendingInvestments: pendingInvestmentsFromAnalytics !== null
+      ? pendingInvestmentsFromAnalytics
+      : (Array.isArray(dashboardInvestments) 
+        ? dashboardInvestments.filter(inv => inv.status === 'pending').length
+        : (Array.isArray(investments) ? investments.filter(inv => inv.status === 'pending').length : 0)),
+    totalPropertyValue: Array.isArray(dashboardProperties) 
+      ? dashboardProperties.reduce((sum, prop) => sum + getPropertyValue(prop), 0)
+      : (Array.isArray(properties) ? properties.reduce((sum, prop) => sum + getPropertyValue(prop), 0) : 0),
+    liquidityData: dashboardLiquidity || liquidityData?.data?.data || liquidityData?.data || null,
+    organizationDetails: dashboardOrgData
+  } : {
+    // Calculate from individual endpoints (fallback)
+    totalUsers: Array.isArray(users) ? users.length : 0,
+    totalProperties: Array.isArray(properties) ? properties.length : 0,
+    totalTransactions: Array.isArray(transactions) ? transactions.length : 0,
+    // PRIORITY: Investment Analytics > Manual calculation
+    totalInvestments: investmentTotalFromAnalytics !== null
+      ? investmentTotalFromAnalytics
+      : (Array.isArray(investments) ? investments.reduce((sum, inv) => sum + getInvestmentAmount(inv), 0) : 0),
+    totalInvestmentCount: investmentCountFromAnalytics !== null
+      ? investmentCountFromAnalytics
+      : (Array.isArray(investments) ? investments.length : 0),
+    totalTransactionAmount: Array.isArray(transactions) 
+      ? transactions.reduce((sum, tx) => sum + getTransactionAmount(tx), 0) 
+      : 0,
+    activeInvestments: activeInvestmentsFromAnalytics !== null
+      ? activeInvestmentsFromAnalytics
+      : (Array.isArray(investments) ? investments.filter(inv => inv.status === 'active' || inv.status === 'approved' || inv.status === 'confirmed').length : 0),
+    pendingInvestments: pendingInvestmentsFromAnalytics !== null
+      ? pendingInvestmentsFromAnalytics
+      : (Array.isArray(investments) ? investments.filter(inv => inv.status === 'pending').length : 0),
+    totalPropertyValue: Array.isArray(properties) 
+      ? properties.reduce((sum, prop) => sum + getPropertyValue(prop), 0) 
+      : 0,
+    liquidityData: liquidityData?.data?.data || liquidityData?.data || null,
+    organizationDetails: null
+  };
+  
+  // Additional debugging: Show detailed breakdown
+  console.log(`💵 ${organizationName} Investment Amounts Breakdown:`, {
+    investments: Array.isArray(investments) ? investments.map(inv => ({
+      id: inv.id || inv.displayCode,
+      amountUSDT: inv.amountUSDT,
+      amount: inv.amount,
+      tokensPurchased: inv.tokensPurchased,
+      extractedAmount: getInvestmentAmount(inv)
+    })) : [],
+    totalCalculated: stats.totalInvestments
+  });
+
+  console.log(`💳 ${organizationName} Transaction Amounts Breakdown:`, {
+    transactions: Array.isArray(transactions) ? transactions.map(tx => ({
+      id: tx.id || tx.displayCode,
+      amountUSDT: tx.amountUSDT,
+      amount: tx.amount,
+      extractedAmount: getTransactionAmount(tx)
+    })) : [],
+    totalCalculated: stats.totalTransactionAmount
+  });
+
+  console.log(`🏢 ${organizationName} Property Values Breakdown:`, {
+    properties: Array.isArray(properties) ? properties.map(prop => ({
+      id: prop.id || prop.displayCode,
+      title: prop.title,
+      totalValueUSDT: prop.totalValueUSDT,
+      price: prop.price,
+      extractedValue: getPropertyValue(prop)
+    })) : [],
+    totalCalculated: stats.totalPropertyValue
+  });
+
+  console.log(`📈 ${organizationName} (${organizationId}) - Final ORGANIZATION-SPECIFIC Stats (using ${dashboardStats ? 'DASHBOARD' : 'INDIVIDUAL'} endpoints):`, {
+    ...stats,
+    note: `⚠️ These are ONLY for ${organizationName}, NOT totals across all organizations!`,
+    dataSource: dashboardStats ? 'Dashboard API' : 'Individual Organization APIs'
+  });
+
+  const dashboardLoading = orgLoading;
+
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: BarChart3 },
+    { id: 'properties', label: 'Properties', icon: Building2 },
+    { id: 'users', label: 'Users', icon: Users },
+    { id: 'transactions', label: 'Transactions', icon: DollarSign },
+    { id: 'investments', label: 'Investments', icon: TrendingUp },
+    { id: 'profile', label: 'Profile', icon: User }
+  ];
+
+  // Format currency
+  const formatCurrency = (amount, currency = 'USDT') => {
+    if (!amount) return `0 ${currency}`;
+    return `${parseFloat(amount).toLocaleString()} ${currency}`;
+  };
+
+  // Stat Card Component
+  const StatCard = ({ title, value, icon: Icon, color = 'blue', onClick }) => (
+    <Card 
+      className={`p-6 ${onClick ? 'cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105' : ''}`}
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="text-3xl font-bold text-card-foreground mt-2">{value}</p>
+        </div>
+        <div className={`p-4 rounded-2xl bg-gradient-to-br from-${color}-100 to-${color}-200`}>
+          <Icon className={`w-8 h-8 text-${color}-600`} />
+        </div>
+      </div>
+    </Card>
+  );
+
+  const handleLogout = () => {
+    logout();
+    navigate('/org/login');
+  };
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'properties':
+        return <OrgPropertiesManagement organizationId={organizationId} />;
+      case 'users':
+        return <OrgUsersManagement organizationId={organizationId} />;
+      case 'transactions':
+        return <OrgTransactionsManagement organizationId={organizationId} />;
+      case 'investments':
+        return <OrgInvestmentsManagement organizationId={organizationId} />;
+      case 'profile':
+        return <OrgProfile />;
+      default:
+        return renderOverview();
+    }
+  };
+
+  const renderOverview = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard
+          title={`${organizationName} Users`}
+          value={stats.totalUsers || 0}
+          icon={Users}
+          color="blue"
+          onClick={() => setActiveTab('users')}
+        />
+        <StatCard
+          title={`${organizationName} Properties`}
+          value={stats.totalProperties || 0}
+          icon={Building2}
+          color="green"
+          onClick={() => setActiveTab('properties')}
+        />
+        <StatCard
+          title={`${organizationName} Investments`}
+          value={formatCurrency(stats.totalInvestments || 0)}
+          icon={TrendingUp}
+          color="purple"
+          onClick={() => setActiveTab('investments')}
+        />
+        <StatCard
+          title={`${organizationName} Transactions`}
+          value={stats.totalTransactions || 0}
+          icon={DollarSign}
+          color="orange"
+          onClick={() => setActiveTab('transactions')}
+        />
+      </div>
+
+      {/* Secondary Stats Grid - Additional Details */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <Card className="p-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Investment Count</span>
+              <TrendingUp className="w-4 h-4 text-purple-600" />
+            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {stats.totalInvestmentCount || 0}
+            </p>
+            <div className="flex items-center space-x-2 text-xs">
+              <span className="text-green-600">✓ Active: {stats.activeInvestments || 0}</span>
+              <span className="text-gray-400">|</span>
+              <span className="text-yellow-600">⏳ Pending: {stats.pendingInvestments || 0}</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Transaction Amount</span>
+              <DollarSign className="w-4 h-4 text-orange-600" />
+            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {formatCurrency(stats.totalTransactionAmount || 0)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Total value of all transactions
+            </p>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Property Value</span>
+              <Building2 className="w-4 h-4 text-green-600" />
+            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {formatCurrency(stats.totalPropertyValue || 0)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Combined value of all properties
+            </p>
+          </div>
+        </Card>
+      </div>
+
+      {/* Quick Actions */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold text-card-foreground mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Button 
+            variant="outline" 
+            onClick={() => setActiveTab('properties')}
+            className="flex items-center justify-center space-x-2 py-4"
+          >
+            <Building2 className="w-5 h-5" />
+            <span>View Properties</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setActiveTab('users')}
+            className="flex items-center justify-center space-x-2 py-4"
+          >
+            <Users className="w-5 h-5" />
+            <span>View Users</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setActiveTab('investments')}
+            className="flex items-center justify-center space-x-2 py-4"
+          >
+            <TrendingUp className="w-5 h-5" />
+            <span>View Investments</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setActiveTab('transactions')}
+            className="flex items-center justify-center space-x-2 py-4"
+          >
+            <DollarSign className="w-5 h-5" />
+            <span>View Transactions</span>
+          </Button>
+        </div>
+      </Card>
+
+      {/* API Status & Data Sources (Debug Info) */}
+      <Card className="p-6 bg-gradient-to-br from-green-50 to-primary/10 dark:from-green-900/10 dark:to-primary/10 border-green-200 dark:border-green-800/30">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center">
+            <span className="mr-2">📡</span> Organization-Specific API Status
+          </h3>
+          <Badge variant="green" className="text-xs">
+            Filtered by {organizationId}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4 font-medium">
+          ⚠️ All endpoints below return data ONLY for <span className="text-primary font-bold">{organizationName}</span>, not totals
+        </p>
+        
+        {/* Primary Dashboard Endpoint */}
+        <div className="mb-4 bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-primary dark:text-primary-400">📊 Dashboard API (Primary)</span>
+            <span className={`text-xs ${dashboardStats ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+              {dashboardStats ? '✓ Active' : '○ Not Used'}
+            </span>
+          </div>
+          <div className="text-xs text-primary dark:text-primary-400 mt-1 font-mono">
+            GET /admin/dashboard?organizationId={organizationId}
+          </div>
+          {dashboardStats && (
+            <div className="text-xs text-primary dark:text-primary-400 mt-2">
+              Returns: Properties, Investments, Transactions, Investors, Liquidity
+            </div>
+          )}
+        </div>
+        
+        {/* Individual Endpoints */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground">Properties</span>
+              <span className={`text-xs ${stats.totalProperties > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                {stats.totalProperties > 0 ? '✓' : '○'}
+              </span>
+            </div>
+            <div className="text-sm font-bold text-card-foreground">
+              {stats.totalProperties} {organizationName} properties
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /properties?org=${organizationId}`}>
+              {dashboardStats ? 'Dashboard API' : `GET /properties?org=...`}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground">Investors</span>
+              <span className={`text-xs ${stats.totalUsers > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                {stats.totalUsers > 0 ? '✓' : '○'}
+              </span>
+            </div>
+            <div className="text-sm font-bold text-card-foreground">
+              {stats.totalUsers} {organizationName} investors
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /admin/users?org=${organizationId}`}>
+              {dashboardStats ? 'Dashboard API' : `GET /admin/users?org=...`}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground">Investments</span>
+              <span className={`text-xs ${stats.totalInvestmentCount > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                {stats.totalInvestmentCount > 0 ? '✓' : '○'}
+              </span>
+            </div>
+            <div className="text-sm font-bold text-card-foreground">
+              {stats.totalInvestmentCount} {organizationName} investments
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /investments?org=${organizationId}`}>
+              {dashboardStats ? 'Dashboard API' : `GET /investments?org=...`}
+            </div>
+          </div>
+
+          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground">Transactions</span>
+              <span className={`text-xs ${stats.totalTransactions > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                {stats.totalTransactions > 0 ? '✓' : '○'}
+              </span>
+            </div>
+            <div className="text-sm font-bold text-card-foreground">
+              {stats.totalTransactions} {organizationName} transactions
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={`GET /organizations/${organizationId}/transactions`}>
+              GET /organizations/:id/tx
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-4 pt-4 border-t border-border">
+          <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+            <span className="text-muted-foreground">
+              <span className="font-medium">Data Source:</span> {dashboardStats ? 'Dashboard API' : 'Individual Org APIs'}
+            </span>
+            <span className="text-muted-foreground font-medium flex items-center">
+              <span className="mr-1">🏢</span>
+              <span className="font-medium">Organization:</span> <span className="ml-1 text-primary">{organizationId}</span>
+            </span>
+            <span className="text-muted-foreground">
+              <span className="font-medium">Last Updated:</span> {new Date().toLocaleTimeString()}
+            </span>
+          </div>
+          <div className="mt-2 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 p-2 rounded">
+            ✅ All data above is filtered to show <strong>{organizationName}</strong> only - No data from other organizations is included!
+          </div>
+        </div>
+      </Card>
+
+      {dashboardLoading && (
+        <Card className="p-6 text-center">
+          <div className="flex items-center justify-center space-x-2">
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-muted-foreground">Loading dashboard data...</span>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="bg-card shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-4">
+              <img src="/logo1.png" alt="Logo" className="w-10 h-10 rounded-lg" />
+              <div>
+                <h1 className="text-2xl font-bold text-card-foreground">{organizationName}</h1>
+                <p className="text-sm text-muted-foreground">Organization Dashboard</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Badge variant="blue" className="text-sm px-4 py-2">
+                {organizationSlug.toUpperCase()}
+              </Badge>
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Shield className="w-4 h-4" />
+                <span>{organizationUser?.email}</span>
+              </div>
+              <ThemeToggle />
+              <SafeOrgAdminNotificationIcon />
+              <Button variant="outline" onClick={handleLogout} className="flex items-center space-x-2">
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Navigation Tabs */}
+        <div className="mb-8 bg-card rounded-lg shadow-sm p-2 overflow-x-auto">
+          <nav className="flex space-x-2 min-w-max">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center space-x-2 py-3 px-4 rounded-lg font-medium text-sm transition-all duration-200 whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-md'
+                      : 'text-muted-foreground hover:text-card-foreground hover:bg-accent'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Tab Content */}
+        {renderTabContent()}
+      </div>
+    </div>
+  );
+};
+
+export default OrgDashboard;
+

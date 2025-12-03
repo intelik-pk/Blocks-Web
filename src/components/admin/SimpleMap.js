@@ -1,0 +1,135 @@
+import React, { useState, useEffect } from 'react';
+import { MapPin, Navigation } from 'lucide-react';
+
+const SimpleMap = ({ latitude, longitude, onLocationChange, height = '400px' }) => {
+  // Ensure initial values are always numbers
+  const parseCoord = (value, defaultValue) => {
+    if (!value) return defaultValue;
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue : parsed;
+  };
+
+  const [lat, setLat] = useState(parseCoord(latitude, 24.8607));
+  const [lng, setLng] = useState(parseCoord(longitude, 67.0011));
+
+  useEffect(() => {
+    if (latitude !== undefined && latitude !== null && latitude !== '') {
+      const parsedLat = parseFloat(latitude);
+      if (!isNaN(parsedLat)) {
+        setLat(parsedLat);
+      }
+    }
+    if (longitude !== undefined && longitude !== null && longitude !== '') {
+      const parsedLng = parseFloat(longitude);
+      if (!isNaN(parsedLng)) {
+        setLng(parsedLng);
+      }
+    }
+  }, [latitude, longitude]);
+
+  const handleLatChange = (e) => {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      setLat(value);
+      const currentLng = typeof lng === 'number' && !isNaN(lng) ? lng : parseFloat(lng) || 67.0011;
+      onLocationChange(value, currentLng);
+    }
+  };
+
+  const handleLngChange = (e) => {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      setLng(value);
+      const currentLat = typeof lat === 'number' && !isNaN(lat) ? lat : parseFloat(lat) || 24.8607;
+      onLocationChange(currentLat, value);
+    }
+  };
+
+  const getGoogleMapsUrl = () => {
+    const latNum = typeof lat === 'number' ? lat : parseFloat(lat) || 24.8607;
+    const lngNum = typeof lng === 'number' ? lng : parseFloat(lng) || 67.0011;
+    return `https://www.google.com/maps?q=${latNum},${lngNum}&z=15`;
+  };
+
+  const getOpenStreetMapUrl = () => {
+    const latNum = typeof lat === 'number' ? lat : parseFloat(lat) || 24.8607;
+    const lngNum = typeof lng === 'number' ? lng : parseFloat(lng) || 67.0011;
+    return `https://www.openstreetmap.org/?mlat=${latNum}&mlon=${lngNum}&zoom=15`;
+  };
+
+  return (
+    <div className="w-full border border-input rounded-lg overflow-hidden" style={{ height }}>
+      {/* Map Preview */}
+      <div className="bg-muted h-3/4 flex items-center justify-center relative">
+        <div className="text-center">
+          <MapPin className="w-12 h-12 text-blue-600 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground mb-2">Property Location</p>
+          <p className="text-xs text-gray-500">
+            {typeof lat === 'number' && !isNaN(lat) ? lat.toFixed(6) : lat}, {typeof lng === 'number' && !isNaN(lng) ? lng.toFixed(6) : lng}
+          </p>
+        </div>
+        
+        {/* Interactive Controls */}
+        <div className="absolute top-2 right-2 bg-card rounded-lg shadow-lg p-2">
+          <div className="flex space-x-2">
+            <a
+              href={getGoogleMapsUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1 px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+            >
+              <Navigation className="w-3 h-3" />
+              <span>Google Maps</span>
+            </a>
+            <a
+              href={getOpenStreetMapUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1 px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600"
+            >
+              <Navigation className="w-3 h-3" />
+              <span>OpenStreet</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Coordinate Inputs */}
+      <div className="bg-card p-4 border-t">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1">
+              Latitude
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={typeof lat === 'number' && !isNaN(lat) ? lat : ''}
+              onChange={handleLatChange}
+              className="w-full px-2 py-1 text-sm border border-input rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="24.8607"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-foreground mb-1">
+              Longitude
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={typeof lng === 'number' && !isNaN(lng) ? lng : ''}
+              onChange={handleLngChange}
+              className="w-full px-2 py-1 text-sm border border-input rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="67.0011"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Enter coordinates manually or click the map links to verify location
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default SimpleMap;
