@@ -481,22 +481,43 @@ const OrgDashboard = () => {
   };
 
   // Stat Card Component
-  const StatCard = ({ title, value, icon: Icon, color = 'blue', onClick }) => (
-    <Card 
-      className={`p-6 ${onClick ? 'cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105' : ''}`}
-      onClick={onClick}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="text-3xl font-bold text-card-foreground mt-2">{value}</p>
+  const StatCard = ({ title, value, icon: Icon, color = 'blue', onClick }) => {
+    const colorClasses = {
+      blue: 'border-blue-400',
+      green: 'border-green-400',
+      purple: 'border-purple-400',
+      orange: 'border-orange-400'
+    };
+    const iconBgClasses = {
+      blue: 'bg-blue-100',
+      green: 'bg-green-100',
+      purple: 'bg-purple-100',
+      orange: 'bg-orange-100'
+    };
+    const iconColorClasses = {
+      blue: 'text-blue-600',
+      green: 'text-green-600',
+      purple: 'text-purple-600',
+      orange: 'text-orange-600'
+    };
+
+    return (
+      <Card 
+        className={`p-6 border-2 ${colorClasses[color]} rounded-lg ${onClick ? 'cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105' : ''}`}
+        onClick={onClick}
+      >
+        <div className="flex flex-col">
+          <div className="flex items-start justify-between mb-4">
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <div className={`p-2 ${iconBgClasses[color]} rounded-lg`}>
+              <Icon className={`w-5 h-5 ${iconColorClasses[color]}`} />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-card-foreground">{value}</p>
         </div>
-        <div className={`p-4 rounded-2xl bg-gradient-to-br from-${color}-100 to-${color}-200`}>
-          <Icon className={`w-8 h-8 text-${color}-600`} />
-        </div>
-      </div>
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   const handleLogout = () => {
     logout();
@@ -639,120 +660,6 @@ const OrgDashboard = () => {
             <DollarSign className="w-5 h-5" />
             <span>View Transactions</span>
           </Button>
-        </div>
-      </Card>
-
-      {/* API Status & Data Sources (Debug Info) */}
-      <Card className="p-6 bg-gradient-to-br from-green-50 to-primary/10 dark:from-green-900/10 dark:to-primary/10 border-green-200 dark:border-green-800/30">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center">
-            <span className="mr-2">📡</span> Organization-Specific API Status
-          </h3>
-          <Badge variant="green" className="text-xs">
-            Filtered by {organizationId}
-          </Badge>
-        </div>
-        <p className="text-xs text-muted-foreground mb-4 font-medium">
-          ⚠️ All endpoints below return data ONLY for <span className="text-primary font-bold">{organizationName}</span>, not totals
-        </p>
-        
-        {/* Primary Dashboard Endpoint */}
-        <div className="mb-4 bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-primary dark:text-primary-400">📊 Dashboard API (Primary)</span>
-            <span className={`text-xs ${dashboardStats ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-              {dashboardStats ? '✓ Active' : '○ Not Used'}
-            </span>
-          </div>
-          <div className="text-xs text-primary dark:text-primary-400 mt-1 font-mono">
-            GET /admin/dashboard?organizationId={organizationId}
-          </div>
-          {dashboardStats && (
-            <div className="text-xs text-primary dark:text-primary-400 mt-2">
-              Returns: Properties, Investments, Transactions, Investors, Liquidity
-            </div>
-          )}
-        </div>
-        
-        {/* Individual Endpoints */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-muted-foreground">Properties</span>
-              <span className={`text-xs ${stats.totalProperties > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                {stats.totalProperties > 0 ? '✓' : '○'}
-              </span>
-            </div>
-            <div className="text-sm font-bold text-card-foreground">
-              {stats.totalProperties} {organizationName} properties
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /properties?org=${organizationId}`}>
-              {dashboardStats ? 'Dashboard API' : `GET /properties?org=...`}
-            </div>
-          </div>
-
-          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-muted-foreground">Investors</span>
-              <span className={`text-xs ${stats.totalUsers > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                {stats.totalUsers > 0 ? '✓' : '○'}
-              </span>
-            </div>
-            <div className="text-sm font-bold text-card-foreground">
-              {stats.totalUsers} {organizationName} investors
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /admin/users?org=${organizationId}`}>
-              {dashboardStats ? 'Dashboard API' : `GET /admin/users?org=...`}
-            </div>
-          </div>
-
-          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-muted-foreground">Investments</span>
-              <span className={`text-xs ${stats.totalInvestmentCount > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                {stats.totalInvestmentCount > 0 ? '✓' : '○'}
-              </span>
-            </div>
-            <div className="text-sm font-bold text-card-foreground">
-              {stats.totalInvestmentCount} {organizationName} investments
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={dashboardStats ? 'From Dashboard API' : `GET /investments?org=${organizationId}`}>
-              {dashboardStats ? 'Dashboard API' : `GET /investments?org=...`}
-            </div>
-          </div>
-
-          <div className="bg-card rounded-lg p-3 border border-border shadow-sm">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-muted-foreground">Transactions</span>
-              <span className={`text-xs ${stats.totalTransactions > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                {stats.totalTransactions > 0 ? '✓' : '○'}
-              </span>
-            </div>
-            <div className="text-sm font-bold text-card-foreground">
-              {stats.totalTransactions} {organizationName} transactions
-            </div>
-            <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={`GET /organizations/${organizationId}/transactions`}>
-              GET /organizations/:id/tx
-            </div>
-          </div>
-        </div>
-        
-        <div className="mt-4 pt-4 border-t border-border">
-          <div className="flex items-center justify-between text-xs flex-wrap gap-2">
-            <span className="text-muted-foreground">
-              <span className="font-medium">Data Source:</span> {dashboardStats ? 'Dashboard API' : 'Individual Org APIs'}
-            </span>
-            <span className="text-muted-foreground font-medium flex items-center">
-              <span className="mr-1">🏢</span>
-              <span className="font-medium">Organization:</span> <span className="ml-1 text-primary">{organizationId}</span>
-            </span>
-            <span className="text-muted-foreground">
-              <span className="font-medium">Last Updated:</span> {new Date().toLocaleTimeString()}
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 p-2 rounded">
-            ✅ All data above is filtered to show <strong>{organizationName}</strong> only - No data from other organizations is included!
-          </div>
         </div>
       </Card>
 

@@ -157,24 +157,54 @@ const OrgPropertyDetail = () => {
     { id: 'transactions', label: 'Transactions', icon: Activity }
   ];
 
-  const StatCard = ({ title, value, icon: Icon, color = 'blue', change, changeType = 'positive' }) => (
-    <Card className="p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold text-card-foreground mt-1">{value}</p>
+  const StatCard = ({ title, value, icon: Icon, color = 'blue', change, changeType = 'positive' }) => {
+    const colorClasses = {
+      blue: 'border-blue-400',
+      green: 'border-green-400',
+      yellow: 'border-yellow-400',
+      purple: 'border-purple-400',
+      indigo: 'border-indigo-400',
+      pink: 'border-pink-400',
+      teal: 'border-teal-400'
+    };
+    const iconBgClasses = {
+      blue: 'bg-blue-100',
+      green: 'bg-green-100',
+      yellow: 'bg-yellow-100',
+      purple: 'bg-purple-100',
+      indigo: 'bg-indigo-100',
+      pink: 'bg-pink-100',
+      teal: 'bg-teal-100'
+    };
+    const iconColorClasses = {
+      blue: 'text-blue-600',
+      green: 'text-green-600',
+      yellow: 'text-yellow-600',
+      purple: 'text-purple-600',
+      indigo: 'text-indigo-600',
+      pink: 'text-pink-600',
+      teal: 'text-teal-600'
+    };
+
+    return (
+      <Card className={`p-6 border-2 ${colorClasses[color]} rounded-lg`}>
+        <div className="flex flex-col">
+          <div className="flex items-start justify-between mb-4">
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <div className={`p-2 ${iconBgClasses[color]} rounded-lg`}>
+              <Icon className={`w-5 h-5 ${iconColorClasses[color]}`} />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-card-foreground">{value}</p>
           {change && (
             <p className={`text-sm mt-1 ${changeType === 'positive' ? 'text-green-600' : 'text-red-600'}`}>
               {changeType === 'positive' ? '+' : ''}{change}
             </p>
           )}
         </div>
-        <div className={`p-3 rounded-full bg-${color}-100`}>
-          <Icon className={`w-6 h-6 text-${color}-600`} />
-        </div>
-      </div>
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   const renderOverview = () => (
     <div className="space-y-6">

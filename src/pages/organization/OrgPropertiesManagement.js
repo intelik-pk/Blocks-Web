@@ -10,7 +10,8 @@ import {
   DollarSign,
   TrendingUp,
   Users,
-  AlertTriangle
+  AlertTriangle,
+  Calendar
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -26,10 +27,22 @@ const OrgPropertiesManagement = ({ organizationId }) => {
     search: '',
     status: '',
     property_type: '',
+    startDate: '',
+    endDate: '',
+    sort_by: 'created_at',
+    sort_order: 'desc'
+  });
+  const [appliedFilters, setAppliedFilters] = useState({
+    search: '',
+    status: '',
+    property_type: '',
+    startDate: '',
+    endDate: '',
     sort_by: 'created_at',
     sort_order: 'desc'
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Fetch properties using organization API (with fallback)
   const { data: propertiesData, isLoading, error } = useQuery(
@@ -75,12 +88,12 @@ const OrgPropertiesManagement = ({ organizationId }) => {
     }
   }, [allProperties]);
 
-  // Frontend filtering
+  // Frontend filtering with date range and sorting
   const filteredProperties = useMemo(() => {
     let filtered = [...allProperties];
     
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    if (appliedFilters.search) {
+      const searchLower = appliedFilters.search.toLowerCase();
       filtered = filtered.filter(property =>
         (property.title || property.name || '').toLowerCase().includes(searchLower) ||
         (property.city || property.location || '').toLowerCase().includes(searchLower) ||
@@ -89,24 +102,85 @@ const OrgPropertiesManagement = ({ organizationId }) => {
       );
     }
     
-    if (filters.status) {
+    if (appliedFilters.status) {
       filtered = filtered.filter(property =>
-        (property.status || '').toLowerCase() === filters.status.toLowerCase()
+        (property.status || '').toLowerCase() === appliedFilters.status.toLowerCase()
       );
     }
     
-    if (filters.property_type) {
+    if (appliedFilters.property_type) {
       filtered = filtered.filter(property =>
-        (property.type || property.propertyType || property.property_type || '').toLowerCase() === filters.property_type.toLowerCase()
+        (property.type || property.propertyType || property.property_type || '').toLowerCase() === appliedFilters.property_type.toLowerCase()
       );
     }
+    
+    // Date range filtering
+    if (appliedFilters.startDate) {
+      const startDate = new Date(appliedFilters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(property => {
+        const propDate = new Date(property.created_at || property.createdAt || property.date);
+        propDate.setHours(0, 0, 0, 0);
+        return propDate >= startDate;
+      });
+    }
+    
+    if (appliedFilters.endDate) {
+      const endDate = new Date(appliedFilters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(property => {
+        const propDate = new Date(property.created_at || property.createdAt || property.date);
+        return propDate <= endDate;
+      });
+    }
+    
+    // Sorting
+    filtered.sort((a, b) => {
+      if (appliedFilters.sort_by === 'created_at' || appliedFilters.sort_by === 'date') {
+        const dateA = new Date(a.created_at || a.createdAt || a.date || 0);
+        const dateB = new Date(b.created_at || b.createdAt || b.date || 0);
+        return appliedFilters.sort_order === 'desc' ? dateB - dateA : dateA - dateB;
+      } else if (appliedFilters.sort_by === 'name') {
+        const nameA = (a.title || a.name || '').toLowerCase();
+        const nameB = (b.title || b.name || '').toLowerCase();
+        return appliedFilters.sort_order === 'desc' ? nameB.localeCompare(nameA) : nameA.localeCompare(nameB);
+      } else if (appliedFilters.sort_by === 'price') {
+        const priceA = parseFloat(a.pricePerTokenUSDT || a.pricePerToken || a.price_per_token || 0);
+        const priceB = parseFloat(b.pricePerTokenUSDT || b.pricePerToken || b.price_per_token || 0);
+        return appliedFilters.sort_order === 'desc' ? priceB - priceA : priceA - priceB;
+      }
+      return 0;
+    });
     
     return filtered;
-  }, [allProperties, filters]);
+  }, [allProperties, appliedFilters]);
+  
+  // Pagination
+  const totalPages = Math.ceil(filteredProperties.length / itemsPerPage);
+  const paginatedProperties = useMemo(() => {
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const endIdx = startIdx + itemsPerPage;
+    return filteredProperties.slice(startIdx, endIdx);
+  }, [filteredProperties, currentPage]);
+  
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedFilters]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+  };
+  
+  const handleApplyFilters = () => {
+    setAppliedFilters({ ...filters });
     setCurrentPage(1);
+  };
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleApplyFilters();
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -162,12 +236,15 @@ const OrgPropertiesManagement = ({ organizationId }) => {
               ({filteredProperties.length} {filteredProperties.length === 1 ? 'property' : 'properties'})
             </span>
           </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Showing {itemsPerPage} per page
+          </p>
         </div>
       </div>
 
       {/* Filters */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
             <div className="relative">
@@ -177,6 +254,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
                 placeholder="Search properties..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
+                onKeyPress={handleKeyPress}
                 className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
               />
             </div>
@@ -211,6 +289,34 @@ const OrgPropertiesManagement = ({ organizationId }) => {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
             <select
               value={filters.sort_by}
@@ -222,23 +328,30 @@ const OrgPropertiesManagement = ({ organizationId }) => {
               <option value="price">Price</option>
             </select>
           </div>
+          
+          <div className="flex items-end">
+            <Button onClick={handleApplyFilters} className="w-full flex items-center justify-center space-x-2">
+              <Search className="w-4 h-4" />
+              <span>Apply Filters</span>
+            </Button>
+          </div>
         </div>
       </Card>
 
       {/* Properties Grid */}
-      {filteredProperties.length === 0 ? (
+      {paginatedProperties.length === 0 ? (
         <Card className="p-12 text-center">
           <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-card-foreground mb-2">No properties found</h3>
           <p className="text-muted-foreground">
-            {filters.search || filters.status || filters.property_type
+            {appliedFilters.search || appliedFilters.status || appliedFilters.property_type
               ? 'Try adjusting your filters'
               : 'No properties have been added yet'}
           </p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProperties.map((property) => (
+          {paginatedProperties.map((property) => (
             <Card key={property.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-200">
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -302,6 +415,61 @@ const OrgPropertiesManagement = ({ organizationId }) => {
             </Card>
           ))}
         </div>
+      )}
+      
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                  <span className="font-medium">
+                    {Math.min(currentPage * itemsPerPage, filteredProperties.length)}
+                  </span>{' '}
+                  of <span className="font-medium">{filteredProperties.length}</span> results
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="flex items-center px-3 text-sm text-gray-700">
+                  Page <span className="font-medium mx-1">{currentPage}</span> of{' '}
+                  <span className="font-medium mx-1">{totalPages}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
       )}
     </div>
   );
