@@ -23,6 +23,10 @@ import {
   Building2,
   X,
   FileText,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  ArrowUpDown,
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -83,6 +87,10 @@ const UsersManagement = () => {
   const [selectedUserDetails, setSelectedUserDetails] = useState(null);
   const [userFinancialData, setUserFinancialData] = useState(null);
   const [loadingFinancialData, setLoadingFinancialData] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [searchInput, setSearchInput] = useState(filters.search || '');
 
   const queryClient = useQueryClient();
 
@@ -343,6 +351,18 @@ const UsersManagement = () => {
     setCurrentPage(1);
   };
 
+  // Debounced search handler - only update filter after user stops typing
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== filters.search) {
+        setFilters(prev => ({ ...prev, search: searchInput }));
+        setCurrentPage(1);
+      }
+    }, 300); // 300ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchInput]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Get user KYC status helper function (needed for filtering)
   // This will be defined later with allKYCData, but we need a placeholder here
   // The actual function is defined after allKYCData is fetched
@@ -566,6 +586,79 @@ const UsersManagement = () => {
     });
   };
 
+  // Apply sorting to filtered users - MUST be before any early returns
+  const sortedFilteredUsers = useMemo(() => {
+    if (!sortColumn) return filteredUsers;
+    
+    return [...filteredUsers].sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortColumn) {
+        case 'created_at':
+          aValue = new Date(a.createdAt || a.created_at || 0);
+          bValue = new Date(b.createdAt || b.created_at || 0);
+          break;
+        default:
+          return 0;
+      }
+      
+      if (sortDirection === 'asc') {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      } else {
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+      }
+    });
+  }, [filteredUsers, sortColumn, sortDirection]);
+
+  // Get unique investors count
+  const uniqueInvestorsSet = new Set();
+  filteredUsers.forEach(user => {
+    // Check if user has investments - this would need to be checked from investments data
+    // For now, we'll use a simple heuristic
+    if (user.hasInvestments || user.investmentCount > 0) {
+      uniqueInvestorsSet.add(user.id);
+    }
+  });
+
+  // Calculate statistics for progress bars
+  const totalUsersCount = filteredUsers.length;
+  const activeUsersPercentage = totalUsersCount > 0 ? (activeUsersCount / totalUsersCount) * 100 : 0;
+  const verifiedUsersCount = filteredUsers.filter(u => getUserKYCStatus(u) === 'verified').length;
+  const verifiedUsersPercentage = totalUsersCount > 0 ? (verifiedUsersCount / totalUsersCount) * 100 : 0;
+  const investorsCount = uniqueInvestorsSet.size;
+  const investorsPercentage = totalUsersCount > 0 ? (investorsCount / totalUsersCount) * 100 : 0;
+  const pendingKYCCount = filteredUsers.filter(u => getUserKYCStatus(u) === 'pending').length;
+  const pendingKYCPercentage = totalUsersCount > 0 ? (pendingKYCCount / totalUsersCount) * 100 : 0;
+
+  // Handle row selection
+  const handleSelectUser = (userId) => {
+    const newSelected = new Set(selectedUsers);
+    if (newSelected.has(userId)) {
+      newSelected.delete(userId);
+    } else {
+      newSelected.add(userId);
+    }
+    setSelectedUsers(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedUsers.size === filteredUsers.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(filteredUsers.map(u => u.id)));
+    }
+  };
+
+  // Handle column sorting
+  const handleSort = (column) => {
+    const newDirection = sortColumn === column && sortDirection === 'asc' ? 'desc' : 'asc';
+    setSortColumn(column);
+    setSortDirection(newDirection);
+    // Update filters to reflect sorting
+    handleFilterChange('sort_by', column);
+    handleFilterChange('sort_order', newDirection);
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="text-center py-12">
@@ -593,194 +686,225 @@ const UsersManagement = () => {
     );
   }
 
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-card-foreground">Users Management</h2>
-          <p className="text-muted-foreground">
-            Manage all users in your platform
-            {pagination.totalUsers > 0 && (
-              <span className="ml-2 text-blue-600 font-medium">
-                ({pagination.totalUsers} {pagination.totalUsers === 1 ? 'user' : 'users'}
-                {filters.include_inactive && inactiveUsersCount > 0 && (
-                  <span className="text-red-600">
-                    {' '}• {inactiveUsersCount} deleted
-                  </span>
-                )}
-                )
-              </span>
-            )}
-          </p>
-        </div>
-        <Button onClick={handleCreateUser} className="flex items-center space-x-2">
-          <Plus className="w-4 h-4" />
-          <span>Add User</span>
-        </Button>
+      <div>
+        <h1 className="text-4xl font-bold text-card-foreground mb-2">People</h1>
       </div>
 
-      {/* Stats Cards - Show when inactive users filter is enabled */}
-      {filters.include_inactive && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="p-4 border-l-4 border-blue-500">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Users</p>
-                <p className="text-2xl font-bold text-card-foreground">{users.length}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4 border-l-4 border-green-500">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Active Users</p>
-                <p className="text-2xl font-bold text-green-600">{activeUsersCount}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <UserCheck className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4 border-l-4 border-red-500">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Deleted Users</p>
-                <p className="text-2xl font-bold text-red-600">{inactiveUsersCount}</p>
-              </div>
-              <div className="p-3 bg-red-100 rounded-lg">
-                <UserX className="w-6 h-6 text-red-600" />
-              </div>
-            </div>
-          </Card>
+      {/* Summary Statistics Section */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="bg-card rounded-xl p-4 border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-muted-foreground">Active Users</span>
+            <span className="text-sm font-bold text-card-foreground">{Math.round(activeUsersPercentage)}%</span>
+          </div>
+          <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+            <div 
+              className="bg-blue-600 h-full rounded-full transition-all duration-500"
+              style={{ width: `${activeUsersPercentage}%` }}
+            />
+          </div>
         </div>
-      )}
 
-      {/* Filters */}
-      <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Search</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search users..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                  }
-                }}
-                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-              />
-            </div>
+        <div className="bg-card rounded-xl p-4 border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-muted-foreground">Verified</span>
+            <span className="text-sm font-bold text-card-foreground">{Math.round(verifiedUsersPercentage)}%</span>
           </div>
+          <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+            <div 
+              className="bg-yellow-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${verifiedUsersPercentage}%` }}
+            />
+          </div>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+        <div className="bg-card rounded-xl p-4 border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-muted-foreground">Investors</span>
+            <span className="text-sm font-bold text-card-foreground">{Math.round(investorsPercentage)}%</span>
           </div>
+          <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+            <div 
+              className="bg-gray-400 h-full rounded-full transition-all duration-500"
+              style={{ 
+                width: `${investorsPercentage}%`,
+                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.1) 5px, rgba(0,0,0,0.1) 10px)'
+              }}
+            />
+          </div>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">KYC Status</label>
-            <select
-              value={filters.kyc_status}
-              onChange={(e) => handleFilterChange('kyc_status', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All KYC Status</option>
-              <option value="verified">Verified</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
-            </select>
+        <div className="bg-card rounded-xl p-4 border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-muted-foreground">KYC Pending</span>
+            <span className="text-sm font-bold text-card-foreground">{Math.round(pendingKYCPercentage)}%</span>
           </div>
+          <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+            <div 
+              className="bg-white border-2 border-gray-300 h-full rounded-full transition-all duration-500"
+              style={{ width: `${pendingKYCPercentage}%` }}
+            />
+          </div>
+        </div>
+      </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Sort By</label>
-            <select
-              value={filters.sort_by}
-              onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="created_at">Date Created</option>
-              <option value="name">Name</option>
-              <option value="email">Email</option>
-              <option value="kyc_status">KYC Status</option>
-            </select>
+      {/* Filter and Action Bar */}
+      <div className="bg-card rounded-xl p-4 border border-border">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          {/* Filter Dropdowns */}
+          <select 
+            value={filters.status}
+            onChange={(e) => handleFilterChange('status', e.target.value)}
+            className="px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Account Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select 
+            value={filters.kyc_status}
+            onChange={(e) => handleFilterChange('kyc_status', e.target.value)}
+            className="px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">KYC Status</option>
+            <option value="verified">Verified</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          
+          {/* Search */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Q Search"
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              className="w-full pl-10 pr-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+            />
           </div>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Order</label>
-            <select
-              value={filters.sort_order}
-              onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="desc">Descending</option>
-              <option value="asc">Ascending</option>
-            </select>
-          </div>
+        {/* Action Buttons */}
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <Button 
+            onClick={handleCreateUser} 
+            size="sm" 
+            className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="w-4 h-4" />
+            Add User
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="flex items-center gap-2"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </Button>
         </div>
         
         {/* Additional Options */}
-        <div className="mt-4 pt-4 border-t border-border">
+        <div className="mt-3 pt-3 border-t border-border">
           <div className="flex items-center">
             <input
               type="checkbox"
               id="include_inactive"
               checked={filters.include_inactive}
               onChange={(e) => handleFilterChange('include_inactive', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-ring border-input rounded"
+              className="h-4 w-4 text-primary border-input rounded focus:ring-ring"
             />
             <label htmlFor="include_inactive" className="ml-2 text-sm text-foreground">
               Include inactive users (deleted users)
             </label>
           </div>
         </div>
-      </Card>
+      </div>
+
 
       {/* Users Table */}
-      <Card className="overflow-hidden">
-        <div>
-          <table className="w-full table-fixed text-sm">
-            <thead className="bg-accent">
+      <Card className="overflow-hidden rounded-xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-accent border-b border-border">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[16rem]">
-                  User
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 text-primary border-input rounded focus:ring-2 focus:ring-ring"
+                  />
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[20rem]">
-                  Contact
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Name
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[7rem]">
-                  Status
+                <th 
+                  className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent/50"
+                >
+                  <div className="flex items-center gap-1">
+                    Email
+                    <ArrowUpDown className="w-3 h-3 opacity-50" />
+                  </div>
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[9rem]">
-                  KYC Status
+                <th 
+                  className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent/50"
+                  onClick={() => handleSort('created_at')}
+                >
+                  <div className="flex items-center gap-1">
+                    Join Date
+                    {sortColumn === 'created_at' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-50" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[12rem]">
+                <th 
+                  className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent/50"
+                >
+                  <div className="flex items-center gap-1">
+                    KYC Status
+                    <ArrowUpDown className="w-3 h-3 opacity-50" />
+                  </div>
+                </th>
+                <th 
+                  className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-accent/50"
+                >
+                  <div className="flex items-center gap-1">
+                    Account Status
+                    <ArrowUpDown className="w-3 h-3 opacity-50" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-card divide-y divide-gray-200">
+            <tbody className="bg-card divide-y divide-border">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-3 py-12 text-center text-muted-foreground">
+                  <td colSpan="7" className="px-4 py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center">
                       <Users className="w-12 h-12 text-muted-foreground mb-4" />
                       <p className="text-lg font-medium">No users found</p>
@@ -789,7 +913,7 @@ const UsersManagement = () => {
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => {
+                sortedFilteredUsers.map((user) => {
                 // Get real KYC status from KYC table
                 const userKYCStatus = getUserKYCStatus(user);
                 const kycInfo = getKYCStatusBadge(userKYCStatus);
@@ -799,24 +923,36 @@ const UsersManagement = () => {
 
                 const isDeleted = !(user.isActive !== undefined ? user.isActive : user.is_active);
                 
+                const isSelected = selectedUsers.has(user.id);
+                const isVerified = userKYCStatus === 'verified';
+                const isActive = user.isActive !== undefined ? user.isActive : user.is_active;
+
                 return (
                   <tr 
                     key={user.id} 
-                    className={`hover:bg-accent ${isDeleted ? 'bg-red-50 opacity-60' : ''}`}
+                    className={`
+                      transition-colors
+                      ${isSelected ? 'bg-yellow-100 dark:bg-yellow-900/20' : 'hover:bg-accent'}
+                      ${isDeleted ? 'opacity-60' : ''}
+                    `}
                   >
-                    <td className="px-3 py-2 whitespace-nowrap overflow-hidden">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                            <span className="text-sm font-medium text-foreground">
-                              {(user.fullName || user.name || 'U').charAt(0).toUpperCase()}
-                            </span>
-                          </div>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleSelectUser(user.id)}
+                        className="w-4 h-4 text-primary border-input rounded focus:ring-2 focus:ring-ring"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-white">
+                            {(user.fullName || user.name || 'U').charAt(0).toUpperCase()}
+                          </span>
                         </div>
-                        <div className="ml-3 min-w-0">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={async () => {
+                        <button
+                          onClick={async () => {
                                 setSelectedUserDetails(user);
                                 setShowUserDetailsModal(true);
                                 
@@ -904,61 +1040,40 @@ const UsersManagement = () => {
                                   setLoadingFinancialData(false);
                                 }
                               }}
-                              className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer truncate max-w-[10rem]"
+                              className="text-sm font-medium text-card-foreground hover:text-primary cursor-pointer"
                             >
                               {user.fullName || user.name || 'Unknown User'}
                             </button>
-                            {user.displayCode && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800">
-                                {user.displayCode}
-                            </span>
-                            )}
-                            {isDeleted && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800">
-                                <Trash2 className="w-3 h-3 mr-1" />
-                                Deleted
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[10rem]">
-                            ID: {user.id?.slice(0, 8)}...
-                          </div>
-                        </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap overflow-hidden">
-                      <div className="space-y-1">
-                        <div className="flex items-center text-sm text-card-foreground truncate max-w-[14rem]">
-                          <Mail className="w-3 h-3 mr-2 text-muted-foreground" />
-                          <span className="truncate">{user.email}</span>
-                        </div>
-                        {user.phone && (
-                          <div className="flex items-center text-xs text-muted-foreground truncate max-w-[14rem]">
-                            <Phone className="w-3 h-3 mr-2 text-muted-foreground" />
-                            <span className="truncate">{user.phone}</span>
-                          </div>
-                        )}
-                      </div>
+                    <td className="px-4 py-3 text-sm text-card-foreground">
+                      {user.email || 'N/A'}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <Badge variant={statusInfo.variant} className="flex items-center text-[10px] px-2 py-0.5">
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {statusInfo.text}
-                      </Badge>
+                    <td className="px-4 py-3 text-sm text-card-foreground">
+                      {formatDate(user.createdAt || user.created_at)}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
+                    <td className="px-4 py-3">
                       <button 
                         onClick={() => handleKYCStatusUpdate(user)}
                         className="cursor-pointer hover:opacity-80 transition-opacity"
                         title="Click to update KYC status"
                       >
-                      <Badge variant={kycInfo.variant} className="flex items-center text-[10px] px-2 py-0.5">
-                        <KycIcon className="w-3 h-3 mr-1" />
-                        {kycInfo.text}
-                      </Badge>
+                        <Badge variant={kycInfo.variant} className="flex items-center text-xs px-2 py-0.5">
+                          <KycIcon className="w-3 h-3 mr-1" />
+                          {kycInfo.text}
+                        </Badge>
                       </button>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm font-medium">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <Badge variant={statusInfo.variant} className="flex items-center text-xs px-2 py-0.5">
+                          <StatusIcon className="w-3 h-3 mr-1" />
+                          {statusInfo.text}
+                        </Badge>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center justify-start space-x-2">
                         <Button
                           variant="outline"
