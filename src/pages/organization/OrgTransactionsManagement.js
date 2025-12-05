@@ -23,8 +23,21 @@ const OrgTransactionsManagement = ({ organizationId }) => {
   const [filters, setFilters] = useState({
     search: '',
     status: '',
-    transaction_type: ''
+    transaction_type: '',
+    startDate: '',
+    endDate: '',
+    sortBy: 'latest'
   });
+  const [appliedFilters, setAppliedFilters] = useState({
+    search: '',
+    status: '',
+    transaction_type: '',
+    startDate: '',
+    endDate: '',
+    sortBy: 'latest'
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Fetch organization liquidity transactions
   const { data: transactionsData, isLoading, error } = useQuery(
@@ -90,12 +103,12 @@ const OrgTransactionsManagement = ({ organizationId }) => {
            'other';
   };
 
-  // Frontend filtering
+  // Frontend filtering with date range and sorting
   const filteredTransactions = useMemo(() => {
     let filtered = [...allTransactions];
     
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    if (appliedFilters.search) {
+      const searchLower = appliedFilters.search.toLowerCase();
       filtered = filtered.filter(transaction => {
         const id = (transaction.id || transaction.displayCode || '').toLowerCase();
         const description = (transaction.description || '').toLowerCase();
@@ -111,25 +124,81 @@ const OrgTransactionsManagement = ({ organizationId }) => {
       });
     }
     
-    if (filters.status) {
+    if (appliedFilters.status) {
       filtered = filtered.filter(transaction =>
-        (transaction.status || '').toLowerCase() === filters.status.toLowerCase()
+        (transaction.status || '').toLowerCase() === appliedFilters.status.toLowerCase()
       );
     }
     
-    if (filters.transaction_type) {
-      const typeFilter = filters.transaction_type.toLowerCase();
+    if (appliedFilters.transaction_type) {
+      const typeFilter = appliedFilters.transaction_type.toLowerCase();
       filtered = filtered.filter(transaction => {
         const txType = getTransactionType(transaction).toLowerCase();
         return txType === typeFilter;
       });
     }
     
+    // Date range filtering
+    if (appliedFilters.startDate) {
+      const startDate = new Date(appliedFilters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(transaction => {
+        const txDate = new Date(transaction.created_at || transaction.createdAt || transaction.date);
+        txDate.setHours(0, 0, 0, 0);
+        return txDate >= startDate;
+      });
+    }
+    
+    if (appliedFilters.endDate) {
+      const endDate = new Date(appliedFilters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(transaction => {
+        const txDate = new Date(transaction.created_at || transaction.createdAt || transaction.date);
+        return txDate <= endDate;
+      });
+    }
+    
+    // Sorting
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.created_at || a.createdAt || a.date || 0);
+      const dateB = new Date(b.created_at || b.createdAt || b.date || 0);
+      
+      if (appliedFilters.sortBy === 'latest') {
+        return dateB - dateA; // Latest first
+      } else {
+        return dateA - dateB; // Earliest first
+      }
+    });
+    
     return filtered;
-  }, [allTransactions, filters]);
+  }, [allTransactions, appliedFilters]);
+  
+  // Pagination
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const paginatedTransactions = useMemo(() => {
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const endIdx = startIdx + itemsPerPage;
+    return filteredTransactions.slice(startIdx, endIdx);
+  }, [filteredTransactions, currentPage]);
+  
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedFilters]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+  };
+  
+  const handleApplyFilters = () => {
+    setAppliedFilters({ ...filters });
+    setCurrentPage(1);
+  };
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleApplyFilters();
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -294,6 +363,9 @@ const OrgTransactionsManagement = ({ organizationId }) => {
             </span>
           </p>
           <p className="text-xs text-muted-foreground mt-1">
+            Showing {itemsPerPage} per page
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
             💳 Showing only transactions for {organizationName} (Organization ID: {organizationId})
           </p>
         </div>
@@ -301,52 +373,52 @@ const OrgTransactionsManagement = ({ organizationId }) => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="p-6 border-l-4 border-primary">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Volume</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {formatCurrency(summary.totalAmount)}
-              </p>
+        <Card className="p-6 border-2 border-blue-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Total Volume</p>
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <DollarSign className="w-5 h-5 text-blue-600" />
+              </div>
             </div>
-            <div className="p-3 bg-primary/20 rounded-lg">
-              <DollarSign className="w-6 h-6 text-primary" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {formatCurrency(summary.totalAmount)}
+            </p>
           </div>
         </Card>
 
-        <Card className="p-6 border-l-4 border-green-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Completed</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {summary.completedTransactions}
-              </p>
+        <Card className="p-6 border-2 border-green-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Completed</p>
+              <div className="p-2 bg-green-100 rounded-lg">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
             </div>
-            <div className="p-3 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {summary.completedTransactions}
+            </p>
           </div>
         </Card>
 
-        <Card className="p-6 border-l-4 border-yellow-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Pending</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {summary.pendingTransactions}
-              </p>
+        <Card className="p-6 border-2 border-orange-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Pending</p>
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <Clock className="w-5 h-5 text-orange-600" />
+              </div>
             </div>
-            <div className="p-3 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {summary.pendingTransactions}
+            </p>
           </div>
         </Card>
       </div>
 
       {/* Filters */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
             <div className="relative">
@@ -356,6 +428,7 @@ const OrgTransactionsManagement = ({ organizationId }) => {
                 placeholder="Search transactions..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
+                onKeyPress={handleKeyPress}
                 className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
               />
             </div>
@@ -391,6 +464,53 @@ const OrgTransactionsManagement = ({ organizationId }) => {
               <option value="reward">Reward</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+            <select
+              value={filters.sortBy}
+              onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+            >
+              <option value="latest">Latest First</option>
+              <option value="earliest">Earliest First</option>
+            </select>
+          </div>
+          
+          <div className="flex items-end">
+            <Button onClick={handleApplyFilters} className="w-full flex items-center justify-center space-x-2">
+              <Search className="w-4 h-4" />
+              <span>Apply Filters</span>
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -421,7 +541,7 @@ const OrgTransactionsManagement = ({ organizationId }) => {
               </tr>
             </thead>
             <tbody className="bg-card divide-y divide-gray-200">
-              {filteredTransactions.length === 0 ? (
+              {paginatedTransactions.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center">
                     <DollarSign className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -430,7 +550,7 @@ const OrgTransactionsManagement = ({ organizationId }) => {
                   </td>
                 </tr>
               ) : (
-                filteredTransactions.map((transaction) => {
+                paginatedTransactions.map((transaction) => {
                   const amount = getTransactionAmount(transaction);
                   const txType = getTransactionType(transaction);
                   const userName = getTransactionUser(transaction);
@@ -493,6 +613,59 @@ const OrgTransactionsManagement = ({ organizationId }) => {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-card px-4 py-3 flex items-center justify-between border-t border-border sm:px-6">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                  <span className="font-medium">
+                    {Math.min(currentPage * itemsPerPage, filteredTransactions.length)}
+                  </span>{' '}
+                  of <span className="font-medium">{filteredTransactions.length}</span> results
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="flex items-center px-3 text-sm text-gray-700">
+                  Page <span className="font-medium mx-1">{currentPage}</span> of{' '}
+                  <span className="font-medium mx-1">{totalPages}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

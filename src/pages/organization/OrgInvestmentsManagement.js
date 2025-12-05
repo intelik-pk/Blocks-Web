@@ -22,8 +22,20 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
   
   const [filters, setFilters] = useState({
     search: '',
-    status: ''
+    status: '',
+    startDate: '',
+    endDate: '',
+    sortBy: 'latest'
   });
+  const [appliedFilters, setAppliedFilters] = useState({
+    search: '',
+    status: '',
+    startDate: '',
+    endDate: '',
+    sortBy: 'latest'
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Fetch investments using organization API (with fallback)
   const { data: investmentsData, isLoading, error } = useQuery(
@@ -130,12 +142,12 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
     return inv.property_name || inv.propertyName || inv.property?.name || 'N/A';
   };
 
-  // Frontend filtering
+  // Frontend filtering with date range and sorting
   const filteredInvestments = useMemo(() => {
     let filtered = [...investments];
     
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    if (appliedFilters.search) {
+      const searchLower = appliedFilters.search.toLowerCase();
       filtered = filtered.filter(inv => {
         const propertyName = getPropertyName(inv).toLowerCase();
         const investorName = getInvestorName(inv).toLowerCase();
@@ -147,17 +159,73 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
       });
     }
     
-    if (filters.status) {
+    if (appliedFilters.status) {
       filtered = filtered.filter(inv =>
-        (inv.status || '').toLowerCase() === filters.status.toLowerCase()
+        (inv.status || '').toLowerCase() === appliedFilters.status.toLowerCase()
       );
     }
     
+    // Date range filtering
+    if (appliedFilters.startDate) {
+      const startDate = new Date(appliedFilters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(inv => {
+        const invDate = new Date(inv.created_at || inv.createdAt || inv.date);
+        invDate.setHours(0, 0, 0, 0);
+        return invDate >= startDate;
+      });
+    }
+    
+    if (appliedFilters.endDate) {
+      const endDate = new Date(appliedFilters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(inv => {
+        const invDate = new Date(inv.created_at || inv.createdAt || inv.date);
+        return invDate <= endDate;
+      });
+    }
+    
+    // Sorting
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.created_at || a.createdAt || a.date || 0);
+      const dateB = new Date(b.created_at || b.createdAt || b.date || 0);
+      
+      if (appliedFilters.sortBy === 'latest') {
+        return dateB - dateA; // Latest first
+      } else {
+        return dateA - dateB; // Earliest first
+      }
+    });
+    
     return filtered;
-  }, [investments, filters]);
+  }, [investments, appliedFilters]);
+  
+  // Pagination
+  const totalPages = Math.ceil(filteredInvestments.length / itemsPerPage);
+  const paginatedInvestments = useMemo(() => {
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const endIdx = startIdx + itemsPerPage;
+    return filteredInvestments.slice(startIdx, endIdx);
+  }, [filteredInvestments, currentPage]);
+  
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedFilters]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+  };
+  
+  const handleApplyFilters = () => {
+    setAppliedFilters({ ...filters });
+    setCurrentPage(1);
+  };
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleApplyFilters();
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -292,83 +360,74 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
               ({filteredInvestments.length} {filteredInvestments.length === 1 ? 'investment' : 'investments'})
             </span>
           </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Showing {itemsPerPage} per page
+          </p>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6 border-l-4 border-primary">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Investments</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {formatCurrency(summary.totalInvestment)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {filteredInvestments.length} investments
-              </p>
+        <Card className="p-6 border-2 border-blue-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Total Investment Value</p>
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <DollarSign className="w-5 h-5 text-blue-600" />
+              </div>
             </div>
-            <div className="p-3 bg-primary/20 rounded-lg">
-              <DollarSign className="w-6 h-6 text-primary" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {formatCurrency(summary.totalInvestment)}
+            </p>
           </div>
         </Card>
 
-        <Card className="p-6 border-l-4 border-purple-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Tokens</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {summary.totalTokens.toLocaleString()}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Avg: {(filteredInvestments.length > 0 ? summary.totalTokens / filteredInvestments.length : 0).toFixed(2)} per investment
-              </p>
+        <Card className="p-6 border-2 border-purple-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Total Investments</p>
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-purple-600" />
+              </div>
             </div>
-            <div className="p-3 bg-primary/20 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-purple-600" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {filteredInvestments.length}
+            </p>
           </div>
         </Card>
 
-        <Card className="p-6 border-l-4 border-green-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Active Investments</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {summary.activeInvestments}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {summary.pendingInvestments} pending
-              </p>
+        <Card className="p-6 border-2 border-green-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Active Investments</p>
+              <div className="p-2 bg-green-100 rounded-lg">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
             </div>
-            <div className="p-3 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {summary.activeInvestments}
+            </p>
           </div>
         </Card>
 
-        <Card className="p-6 border-l-4 border-orange-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Avg Investment</p>
-              <p className="text-2xl font-bold text-card-foreground mt-1">
-                {formatCurrency(summary.averageInvestment)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                per investor
-              </p>
+        <Card className="p-6 border-2 border-orange-400 rounded-lg">
+          <div className="flex flex-col">
+            <div className="flex items-start justify-between mb-4">
+              <p className="text-sm font-medium text-muted-foreground">Avg. Investment</p>
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-orange-600" />
+              </div>
             </div>
-            <div className="p-3 bg-orange-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-orange-600" />
-            </div>
+            <p className="text-2xl font-bold text-card-foreground">
+              {formatCurrency(summary.averageInvestment)}
+            </p>
           </div>
         </Card>
       </div>
 
       {/* Filters */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
             <div className="relative">
@@ -378,6 +437,7 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
                 placeholder="Search investments..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
+                onKeyPress={handleKeyPress}
                 className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
               />
             </div>
@@ -397,6 +457,51 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
+            <select
+              value={filters.sortBy}
+              onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+            >
+              <option value="latest">Latest First</option>
+              <option value="earliest">Earliest First</option>
+            </select>
+          </div>
+        </div>
+        
+        <div className="mt-4">
+          <Button onClick={handleApplyFilters} className="flex items-center space-x-2">
+            <Search className="w-4 h-4" />
+            <span>Apply Filters</span>
+          </Button>
         </div>
       </Card>
 
@@ -427,7 +532,7 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
               </tr>
             </thead>
             <tbody className="bg-card divide-y divide-gray-200">
-              {filteredInvestments.length === 0 ? (
+              {paginatedInvestments.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center">
                     <TrendingUp className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -436,7 +541,7 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
                   </td>
                 </tr>
               ) : (
-                filteredInvestments.map((investment) => {
+                paginatedInvestments.map((investment) => {
                   const amount = getInvestmentAmount(investment);
                   const tokens = getTokenCount(investment);
                   const investorName = getInvestorName(investment);
@@ -505,6 +610,59 @@ const OrgInvestmentsManagement = ({ organizationId }) => {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-card px-4 py-3 flex items-center justify-between border-t border-border sm:px-6">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                  <span className="font-medium">
+                    {Math.min(currentPage * itemsPerPage, filteredInvestments.length)}
+                  </span>{' '}
+                  of <span className="font-medium">{filteredInvestments.length}</span> results
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="flex items-center px-3 text-sm text-gray-700">
+                  Page <span className="font-medium mx-1">{currentPage}</span> of{' '}
+                  <span className="font-medium mx-1">{totalPages}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

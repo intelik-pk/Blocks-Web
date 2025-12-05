@@ -194,52 +194,60 @@ const OrgUsersManagement = ({ organizationId }) => {
 
       {/* Investment Analytics Summary */}
       {analytics && Object.keys(analytics).length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="p-4 bg-gradient-to-br from-primary/10 to-blue-100 border-primary/20">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-primary font-medium">Total Investment Value</p>
-                <p className="text-2xl font-bold text-primary mt-1">
-                  ${parseFloat(analytics.totalAmountUSDT || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card className="p-6 border-2 border-blue-400 rounded-lg">
+            <div className="flex flex-col">
+              <div className="flex items-start justify-between mb-4">
+                <p className="text-sm font-medium text-muted-foreground">Total Investment Value</p>
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <DollarSign className="w-5 h-5 text-blue-600" />
+                </div>
               </div>
-              <DollarSign className="w-8 h-8 text-primary opacity-50" />
+              <p className="text-2xl font-bold text-card-foreground">
+                ${parseFloat(analytics.totalAmountUSDT || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </p>
             </div>
           </Card>
 
-          <Card className="p-4 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-600 font-medium">Total Investments</p>
-                <p className="text-2xl font-bold text-green-900 mt-1">
-                  {analytics.totalInvestments || 0}
-                </p>
+          <Card className="p-6 border-2 border-green-400 rounded-lg">
+            <div className="flex flex-col">
+              <div className="flex items-start justify-between mb-4">
+                <p className="text-sm font-medium text-muted-foreground">Total Investors</p>
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                </div>
               </div>
-              <TrendingUp className="w-8 h-8 text-green-600 opacity-50" />
+              <p className="text-2xl font-bold text-card-foreground">
+                {analytics.totalInvestments || 0}
+              </p>
             </div>
           </Card>
 
-          <Card className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 border-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-purple-600 font-medium">Active Investments</p>
-                <p className="text-2xl font-bold text-purple-900 mt-1">
-                  {analytics.activeInvestments || 0}
-                </p>
+          <Card className="p-6 border-2 border-purple-400 rounded-lg">
+            <div className="flex flex-col">
+              <div className="flex items-start justify-between mb-4">
+                <p className="text-sm font-medium text-muted-foreground">Active Investments</p>
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-purple-600" />
+                </div>
               </div>
-              <CheckCircle className="w-8 h-8 text-purple-600 opacity-50" />
+              <p className="text-2xl font-bold text-card-foreground">
+                {analytics.activeInvestments || 0}
+              </p>
             </div>
           </Card>
 
-          <Card className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-orange-600 font-medium">Avg. Investment</p>
-                <p className="text-2xl font-bold text-orange-900 mt-1">
-                  ${parseFloat(analytics.averageInvestmentAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
+          <Card className="p-6 border-2 border-orange-400 rounded-lg">
+            <div className="flex flex-col">
+              <div className="flex items-start justify-between mb-4">
+                <p className="text-sm font-medium text-muted-foreground">Avg. Investment</p>
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <BarChart3 className="w-5 h-5 text-orange-600" />
+                </div>
               </div>
-              <BarChart3 className="w-8 h-8 text-orange-600 opacity-50" />
+              <p className="text-2xl font-bold text-card-foreground">
+                ${parseFloat(analytics.averageInvestmentAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </p>
             </div>
           </Card>
         </div>
