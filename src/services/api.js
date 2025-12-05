@@ -167,46 +167,11 @@ export const usersAPI = {
 
 // Payment Methods API (User End)
 export const paymentMethodsAPI = {
-  getAll: async (userId) => {
-    // Try multiple endpoint formats to fetch all payment methods from database
-    if (!userId) {
-      return api.get('/payment-methods'); // GET /payment-methods (get all)
-    }
-    
-    // Try different endpoint formats - trying most common first
-    const endpoints = [
-      `/api/payment-methods?userId=${userId}`, // GET /api/payment-methods?userId={userId}
-      `/payment-methods?userId=${userId}`, // GET /payment-methods?userId={userId}
-      `/api/payment-methods/user/${userId}`, // GET /api/payment-methods/user/:userId
-      `/payment-methods/user/${userId}`, // GET /payment-methods/user/:userId
-      `/api/users/${userId}/payment-methods`, // GET /api/users/:userId/payment-methods
-      `/users/${userId}/payment-methods`, // GET /users/:userId/payment-methods
-    ];
-    
-    // Try each endpoint until one works
-    let lastError = null;
-    for (const endpoint of endpoints) {
-      try {
-        console.log(`🔄 Trying payment methods endpoint: ${endpoint}`);
-        const response = await api.get(endpoint);
-        console.log(`✅ Payment methods endpoint worked: ${endpoint}`, response);
-        return response;
-      } catch (error) {
-        console.log(`❌ Endpoint failed: ${endpoint}`, error.response?.status, error.response?.data);
-        lastError = error;
-        // Continue to next endpoint
-      }
-    }
-    
-    // If all fail, throw error with details
-    console.error('❌ All payment methods endpoints failed. Last error:', lastError);
-    throw lastError || new Error('All payment methods endpoints failed');
-  },
-  getByUserId: (userId) => api.get(`/api/payment-methods?userId=${userId}`), // Try with /api/ prefix
-  create: (paymentData) => api.post('/api/payment-methods', paymentData), // POST /api/payment-methods
-  setDefault: (id) => api.put(`/api/payment-methods/${id}/default`), // PUT /api/payment-methods/:id/default
-  delete: (id) => api.delete(`/api/payment-methods/${id}`), // DELETE /api/payment-methods/:id
-  verify: (id, otp) => api.post(`/api/payment-methods/${id}/verify`, { otp }), // POST /api/payment-methods/:id/verify
+  getAll: (userId) => api.get(`/payment-methods${userId ? `?userId=${userId}` : ''}`), // GET /api/payment-methods?userId={userId}
+  create: (paymentData) => api.post('/payment-methods', paymentData), // POST /api/payment-methods
+  setDefault: (id) => api.put(`/payment-methods/${id}/default`), // PUT /api/payment-methods/:id/default
+  delete: (id) => api.delete(`/payment-methods/${id}`), // DELETE /api/payment-methods/:id
+  verify: (id, otp) => api.post(`/payment-methods/${id}/verify`, { otp }), // POST /api/payment-methods/:id/verify
 };
 
 // Wallet API (Complete - User End)
@@ -233,32 +198,17 @@ export const walletAPI = {
 export const walletTransactionsAPI = {
   getAll: (params) => api.get('/transactions', { params }), // GET /transactions (with filters)
   createDeposit: async (depositData) => {
-    // Backend expects:
-    // - userId: string (required)
-    // - amountUSDT: number (required, minimum 0.01)
-    // - paymentMethodId: string/number (probably required)
-    
-    // Ensure userId is a string
-    const userId = depositData.userId ? String(depositData.userId) : depositData.userId;
-    
-    // Convert amount to amountUSDT as expected by backend
-    const amountUSDT = parseFloat(depositData.amount || depositData.amountUSDT || 0);
-    
-    // Build the correct request format
+    // Backend expects: userId (string), amountUSDT (number >= 0.01)
+    // Ensure data format is correct
     const requestData = {
-      userId: userId, // Must be a string
-      amountUSDT: amountUSDT, // Must be a number >= 0.01
+      userId: String(depositData.userId), // Must be a string
+      amountUSDT: parseFloat(depositData.amountUSDT || depositData.amount || 0), // Must be number
       currency: depositData.currency || 'USDT',
       paymentMethodId: depositData.paymentMethodId,
       description: depositData.description || 'Wallet deposit',
     };
     
     console.log('📤 Deposit API Request:', requestData);
-    console.log('📤 Data types:', {
-      userId: typeof requestData.userId,
-      amountUSDT: typeof requestData.amountUSDT,
-      amountUSDTValue: requestData.amountUSDT
-    });
     
     try {
       const response = await api.post('/wallet/deposit', requestData);
@@ -269,7 +219,6 @@ export const walletTransactionsAPI = {
         status: error.response?.status,
         data: error.response?.data,
         errors: error.response?.data?.error,
-        message: error.message,
         requestData: requestData
       });
       

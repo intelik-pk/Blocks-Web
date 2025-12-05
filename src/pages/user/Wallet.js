@@ -10,10 +10,7 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Filter,
-  CreditCard,
-  Trash2,
-  Star
+  Filter
 } from 'lucide-react';
 import Layout from '../../components/Layout/Layout';
 import Card from '../../components/ui/Card';
@@ -120,119 +117,26 @@ const Wallet = () => {
     }
   );
 
-  // Fetch payment methods (from payment_methods table) - Try multiple endpoint formats
-  const { data: paymentMethodsData, isLoading: paymentMethodsLoading, error: paymentMethodsError, refetch: refetchPaymentMethods } = useQuery(
+  // Fetch payment methods (from payment_methods table)
+  const { data: paymentMethodsData, isLoading: paymentMethodsLoading } = useQuery(
     ['paymentMethods', userId],
-    async () => {
-      try {
-        // Try primary endpoint first
-        console.log(`🔄 Fetching payment methods for user ${userId}...`);
-        const response = await paymentMethodsAPI.getAll(userId);
-        console.log('✅ Payment Methods API Response (primary):', response);
-        return response;
-      } catch (error) {
-        console.error('❌ Primary payment methods endpoint failed:', error.response?.status);
-        // Try alternative endpoint format
-        try {
-          console.log('🔄 Trying alternative endpoint format...');
-          const altResponse = await paymentMethodsAPI.getByUserId(userId);
-          console.log('✅ Payment Methods API Response (alternative):', altResponse);
-          return altResponse;
-        } catch (altError) {
-          console.error('❌ Alternative endpoint also failed:', altError.response?.status);
-          throw error; // Throw original error
-        }
-      }
-    },
+    () => paymentMethodsAPI.getAll(userId),
     { 
       enabled: !!userId,
-      retry: 2,
-      onSuccess: (data) => {
-        console.log('✅ Payment Methods API Success - Full Response:', data);
-        console.log('✅ Payment Methods Data Structure:', {
-          data: data?.data,
-          dataData: data?.data?.data,
-          dataArray: data?.data?.paymentMethods,
-          dataArrayAlt: data?.data?.payment_methods,
-          direct: data,
-          fullResponse: JSON.stringify(data, null, 2)
-        });
-      },
+      retry: false,
       onError: (error) => {
-        console.error('❌ Payment Methods API Error:', error);
-        console.error('❌ Error response:', error.response?.data);
-        console.error('❌ Error status:', error.response?.status);
-        console.error('❌ Error URL:', error.config?.url);
-        console.error('❌ Error message:', error.message);
         console.warn('Payment methods API not available:', error.response?.status);
       }
     }
   );
 
   // Deposit mutation
-  const depositMutation = useMutation((data) => walletTransactionsAPI.createDeposit(data), {
-    onSuccess: (response) => {
-      console.log('✅ Deposit successful:', response);
+  const depositMutation = useMutation((data) => walletTransactionsAPI.createDeposit({ ...data, userId }), {
+    onSuccess: () => {
       queryClient.invalidateQueries(['wallet-balance', userId]);
       queryClient.invalidateQueries(['wallet-transactions', userId]);
       setShowDepositModal(false);
       reset();
-      // Show success message
-      alert('Deposit request submitted successfully!');
-    },
-    onError: (error) => {
-      console.error('❌ Deposit error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
-      
-      // Log validation errors if they exist
-      if (error.response?.data?.error && Array.isArray(error.response.data.error)) {
-        console.error('🔴 Backend Validation Errors (Array):');
-        console.error('Full error array:', error.response.data.error);
-        error.response.data.error.forEach((err, index) => {
-          if (typeof err === 'string') {
-            console.error(`  ${index + 1}.`, err);
-          } else if (err && typeof err === 'object') {
-            console.error(`  ${index + 1}.`, JSON.stringify(err, null, 2));
-            // Log common validation error properties
-            if (err.property) console.error(`     Property: ${err.property}`);
-            if (err.constraints) console.error(`     Constraints:`, err.constraints);
-            if (err.message) console.error(`     Message: ${err.message}`);
-            if (err.value) console.error(`     Value: ${err.value}`);
-          } else {
-            console.error(`  ${index + 1}.`, err);
-          }
-        });
-      }
-      
-      // Build user-friendly error message from validation errors
-      let errorMessage = 'Failed to process deposit. ';
-      
-      if (error.response?.data?.error && Array.isArray(error.response.data.error)) {
-        const errorMessages = error.response.data.error
-          .map(err => {
-            if (typeof err === 'string') return err;
-            if (err.message) return err.message;
-            if (err.property && err.constraints) {
-              return Object.values(err.constraints).join(', ');
-            }
-            return JSON.stringify(err);
-          })
-          .filter(Boolean);
-        
-        if (errorMessages.length > 0) {
-          errorMessage += errorMessages.join('. ');
-        } else {
-          errorMessage += 'Please check your payment method and try again.';
-        }
-      } else {
-        errorMessage += error.response?.data?.message || 
-                       error.response?.data?.error || 
-                       error.message || 
-                       'Please check your payment method and try again.';
-      }
-      
-      alert(`Deposit failed: ${errorMessage}`);
     },
   });
 
@@ -369,69 +273,77 @@ const Wallet = () => {
     0
   ) || 0;
   
-  // Extract payment methods from payment_methods table - Handle multiple response structures
-  // Fields: id, user_id, card_type, card_number_masked, card_holder_name, expiry_month, expiry_year, currency, is_default, is_verified, status
+  // Extract payment methods from payment_methods table
+  // Backend structure: { id, userId, type, provider, cardDetails: { cardNumber, cardholderName, ... }, isDefault, status }
   const paymentMethods = (() => {
-    const response = paymentMethodsData;
-    const data = response?.data;
+    // Try different data paths to find the payment methods array
+    const rawData = paymentMethodsData?.data?.data || 
+                    paymentMethodsData?.data ||
+                    paymentMethodsData ||
+                    [];
     
-    // Try all possible response structures
-    // Direct array
-    if (Array.isArray(response)) return response;
-    if (Array.isArray(data)) return data;
-    
-    // Nested structures
-    if (Array.isArray(data?.data)) return data.data;
-    if (Array.isArray(data?.paymentMethods)) return data.paymentMethods;
-    if (Array.isArray(data?.payment_methods)) return data.payment_methods;
-    if (Array.isArray(data?.methods)) return data.methods;
-    if (Array.isArray(response?.paymentMethods)) return response.paymentMethods;
-    if (Array.isArray(response?.payment_methods)) return response.payment_methods;
-    
-    // If data exists but not array, try to extract array from any property
-    if (data && typeof data === 'object') {
-      const keys = Object.keys(data);
-      for (const key of keys) {
-        if (Array.isArray(data[key]) && data[key].length > 0) {
-          console.log(`✅ Found payment methods array in property: ${key}`, data[key]);
-          return data[key];
-        }
-      }
+    // Ensure it's an array
+    let methods = [];
+    if (Array.isArray(rawData)) {
+      methods = rawData;
+    } else if (rawData && typeof rawData === 'object') {
+      // Check if it's wrapped in another structure
+      methods = Object.values(rawData).find(val => Array.isArray(val)) || [];
     }
     
-    // Try response object properties
-    if (response && typeof response === 'object') {
-      const keys = Object.keys(response);
-      for (const key of keys) {
-        if (Array.isArray(response[key]) && response[key].length > 0) {
-          console.log(`✅ Found payment methods array in response property: ${key}`, response[key]);
-          return response[key];
-        }
-      }
-    }
+    console.log('🔍 Raw payment methods data:', rawData);
+    console.log('🔍 Extracted methods array:', methods);
     
-    console.warn('⚠️ No payment methods array found in response. Response structure:', {
-      response,
-      data,
-      dataKeys: data ? Object.keys(data) : [],
-      responseKeys: response ? Object.keys(response) : []
+    // Normalize payment methods to have consistent structure
+    return methods.map(method => {
+      // Handle nested cardDetails structure
+      const cardDetails = method.cardDetails || {};
+      
+      // Mask card number (show only last 4 digits)
+      const cardNumber = cardDetails.cardNumber || method.cardNumber || '';
+      const cardNumberMasked = cardNumber && cardNumber.length > 4
+        ? '****' + cardNumber.slice(-4)
+        : (cardDetails.cardNumberMasked || method.cardNumberMasked || '****');
+      
+      const normalized = {
+        id: method.id,
+        paymentMethodId: method.id,
+        userId: method.userId || method.user_id,
+        type: method.type || 'card',
+        provider: method.provider || cardDetails.provider || 'Card',
+        cardType: method.provider || cardDetails.cardType || cardDetails.type || 'Card',
+        cardNumber: cardNumber,
+        cardNumberMasked: cardNumberMasked,
+        cardholderName: cardDetails.cardholderName || 
+                       cardDetails.cardHolderName || 
+                       method.cardholderName || 
+                       method.cardHolderName || 
+                       'N/A',
+        expiryMonth: cardDetails.expiryMonth || 
+                    cardDetails.expiry_month || 
+                    method.expiryMonth || 
+                    '',
+        expiryYear: cardDetails.expiryYear || 
+                   cardDetails.expiry_year || 
+                   method.expiryYear || 
+                   '',
+        isDefault: method.isDefault || method.is_default || false,
+        status: method.status || 'active',
+        isVerified: method.status === 'verified' || method.isVerified || method.is_verified || false,
+        // Legacy field names for backward compatibility
+        card_type: method.provider || cardDetails.cardType || 'Card',
+        card_number_masked: cardNumberMasked,
+        card_holder_name: cardDetails.cardholderName || 
+                         cardDetails.cardHolderName || 
+                         'N/A',
+        // Keep original structure for debugging
+        _original: method
+      };
+      
+      console.log('🔍 Normalized payment method:', normalized);
+      return normalized;
     });
-    
-    return [];
   })();
-  
-  // Log extracted payment methods for debugging
-  useEffect(() => {
-    if (paymentMethodsData) {
-      console.log('🔍 Payment Methods Debug:', {
-        rawData: paymentMethodsData,
-        extractedCount: paymentMethods.length,
-        extractedMethods: paymentMethods,
-        isLoading: paymentMethodsLoading,
-        error: paymentMethodsError
-      });
-    }
-  }, [paymentMethodsData, paymentMethods, paymentMethodsLoading, paymentMethodsError]);
 
   // Debug logging
   console.log('Wallet - Full API Response:', walletBalanceData);
@@ -440,14 +352,18 @@ const Wallet = () => {
   console.log('Wallet - Total Deposited:', totalDeposited);
   console.log('Wallet - Total Withdrawn:', totalWithdrawn);
   console.log('Wallet - Transactions:', transactions);
-  console.log('🔐 Payment Methods Debug:', {
-    rawData: paymentMethodsData,
-    extractedCount: paymentMethods.length,
-    paymentMethods: paymentMethods,
-    isLoading: paymentMethodsLoading,
-    error: paymentMethodsError,
-    userId: userId
-  });
+  console.log('Wallet - Payment methods:', paymentMethods);
+  console.log('Wallet - Payment methods count:', paymentMethods.length);
+  if (paymentMethods.length > 0) {
+    console.log('Wallet - First payment method structure:', paymentMethods[0]);
+    console.log('Wallet - First payment method display:', {
+      id: paymentMethods[0].id,
+      provider: paymentMethods[0].provider,
+      cardType: paymentMethods[0].cardType,
+      cardNumberMasked: paymentMethods[0].cardNumberMasked,
+      card_number_masked: paymentMethods[0].card_number_masked
+    });
+  }
 
   // Filter transactions by type (deposit, withdrawal, investment, return/reward, fee)
   // Backend uses 'type' field, but also check 'transaction_type' for compatibility
@@ -499,55 +415,23 @@ const Wallet = () => {
       return;
     }
     
-    // Validate amount - backend requires minimum 0.01 USDT
     const amountValue = parseFloat(data.amount);
     if (!data.amount || isNaN(amountValue) || amountValue < 0.01) {
       alert('Please enter a valid amount (minimum 0.01 USDT)');
       return;
     }
     
-    // Validate payment method exists
-    const selectedPaymentMethod = paymentMethods.find(m => 
-      m.id === data.paymentMethodId || 
-      m.id?.toString() === data.paymentMethodId?.toString() ||
-      String(m.id) === String(data.paymentMethodId)
-    );
-    
-    if (!selectedPaymentMethod) {
-      alert('Selected payment method not found. Please refresh and try again.');
-      console.error('❌ Payment method validation failed:', {
-        selectedId: data.paymentMethodId,
-        availableMethods: paymentMethods.map(m => ({ id: m.id, type: m.card_type || m.type })),
-        allPaymentMethods: paymentMethods
-      });
-      return;
-    }
-    
     // POST /wallet/deposit
-    // Backend expects:
-    // - userId: string (required)
-    // - amountUSDT: number (required, minimum 0.01)
-    // - paymentMethodId: string/number
-    
-    // Ensure userId is a string
-    const userIdString = userId ? String(userId) : userId;
-    
+    // Backend expects: userId (string), amountUSDT (number >= 0.01), paymentMethodId
     const depositData = {
-      userId: userIdString, // Must be a string
-      amountUSDT: amountValue, // Backend expects amountUSDT (not amount), must be >= 0.01
+      userId: String(userId), // Must be a string
+      amountUSDT: amountValue, // Backend expects amountUSDT (not amount)
       currency: 'USDT', // Form says "Amount (USDT)"
       paymentMethodId: data.paymentMethodId,
       description: data.description || 'Wallet deposit via debit card',
     };
     
     console.log('🔄 Sending deposit request:', depositData);
-    console.log('🔍 Data types:', {
-      userId: typeof depositData.userId,
-      amountUSDT: typeof depositData.amountUSDT,
-      amountUSDTValue: depositData.amountUSDT,
-      paymentMethodId: typeof depositData.paymentMethodId
-    });
-    console.log('🔍 Selected payment method:', selectedPaymentMethod);
     depositMutation.mutate(depositData);
   };
 
@@ -715,159 +599,6 @@ const Wallet = () => {
             </div>
           </div>
 
-          {/* Payment Methods Section */}
-          <Card className="p-6 mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Payment Methods</h2>
-                <p className="text-sm text-gray-600 mt-1">Manage your saved payment methods</p>
-              </div>
-              <Button onClick={() => setShowAddPaymentModal(true)} variant="outline">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment Method
-              </Button>
-            </div>
-
-            {paymentMethodsLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading payment methods...</p>
-              </div>
-            ) : paymentMethodsError ? (
-              <div className="text-center py-8">
-                <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 mb-2">Failed to load payment methods</p>
-                <Button onClick={() => refetchPaymentMethods()} variant="outline" size="sm">
-                  Retry
-                </Button>
-              </div>
-            ) : paymentMethods.length === 0 ? (
-              <div className="text-center py-8">
-                <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 mb-2">No payment methods found</p>
-                <p className="text-sm text-gray-400 mb-4">Add a payment method to make deposits and withdrawals</p>
-                <Button onClick={() => setShowAddPaymentModal(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Payment Method
-                </Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Card Number</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Card Holder</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiry</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Currency</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {paymentMethods.map((method) => {
-                      const cardType = method.card_type || method.type || method.cardType || 'Unknown';
-                      const cardNumber = method.card_number_masked || method.cardNumber || method.last_four_digits || '****';
-                      const cardHolder = method.card_holder_name || method.cardHolderName || method.holder_name || 'N/A';
-                      const expiryMonth = method.expiry_month || method.expiryMonth || method.expMonth || '';
-                      const expiryYear = method.expiry_year || method.expiryYear || method.expYear || '';
-                      const currency = method.currency || 'USDT';
-                      const isDefault = method.is_default || method.isDefault || false;
-                      const isVerified = method.is_verified !== undefined ? method.is_verified : (method.isVerified !== undefined ? method.isVerified : true);
-                      const status = method.status || 'active';
-                      
-                      return (
-                        <tr key={method.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <CreditCard className="h-5 w-5 text-gray-400 mr-2" />
-                              <span className="text-sm font-medium text-gray-900 capitalize">{cardType}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-900 font-mono">{cardNumber}</span>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-900">{cardHolder}</span>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-900">
-                              {expiryMonth && expiryYear ? `${expiryMonth}/${expiryYear}` : 'N/A'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-900">{currency}</span>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              {isDefault && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  <Star className="h-3 w-3 mr-1" />
-                                  Default
-                                </span>
-                              )}
-                              {isVerified ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Verified
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                  <Clock className="h-3 w-3 mr-1" />
-                                  Pending
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex items-center gap-2">
-                              {!isDefault && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      await paymentMethodsAPI.setDefault(method.id);
-                                      refetchPaymentMethods();
-                                    } catch (error) {
-                                      console.error('Failed to set default:', error);
-                                      alert('Failed to set default payment method');
-                                    }
-                                  }}
-                                >
-                                  <Star className="h-4 w-4 mr-1" />
-                                  Set Default
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={async () => {
-                                  if (window.confirm('Are you sure you want to delete this payment method?')) {
-                                    try {
-                                      await paymentMethodsAPI.delete(method.id);
-                                      refetchPaymentMethods();
-                                    } catch (error) {
-                                      console.error('Failed to delete:', error);
-                                      alert('Failed to delete payment method');
-                                    }
-                                  }
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
           {/* Transaction History */}
           <Card className="p-6">
             <div className="flex items-center justify-between mb-6">
@@ -1008,36 +739,23 @@ const Wallet = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Payment Method
-                      {paymentMethodsLoading && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
-                      {paymentMethodsError && <span className="text-xs text-red-500 ml-2">(Error)</span>}
-                      {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length === 0 && (
-                        <span className="text-xs text-yellow-600 ml-2">(No payment methods - add one below)</span>
-                      )}
-                      {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length > 0 && (
-                        <span className="text-xs text-gray-500 ml-2">({paymentMethods.length} available)</span>
-                      )}
                     </label>
                     <select
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       {...register('paymentMethodId', { 
                         required: 'Payment method is required' 
                       })}
-                      disabled={paymentMethodsLoading || paymentMethodsError}
                     >
-                      <option value="">
-                        {paymentMethodsLoading 
-                          ? 'Loading payment methods...' 
-                          : paymentMethodsError 
-                          ? 'Error loading payment methods' 
-                          : paymentMethods.length === 0
-                          ? 'No payment methods - add one first'
-                          : 'Select payment method'}
-                      </option>
+                      <option value="">Select payment method</option>
                       {paymentMethods.map((method) => {
-                        const cardType = method.card_type || method.type || method.cardType || 'Card';
-                        const cardNumber = method.card_number_masked || method.cardNumber || method.last_four_digits || method.card_number || '****';
-                        const cardHolder = method.card_holder_name || method.cardHolderName || method.holder_name || '';
-                        const displayName = cardHolder ? `${cardType} - ${cardNumber} (${cardHolder})` : `${cardType} - ${cardNumber}`;
+                        // Handle both normalized and raw structures
+                        const provider = method.provider || method.cardType || method.card_type || 'Card';
+                        const cardNumber = method.cardNumberMasked || 
+                                         method.card_number_masked || 
+                                         (method.cardDetails?.cardNumber 
+                                           ? '****' + method.cardDetails.cardNumber.slice(-4) 
+                                           : '****');
+                        const displayName = `${provider} - ${cardNumber}`;
                         
                         return (
                           <option key={method.id} value={method.id}>
@@ -1046,23 +764,13 @@ const Wallet = () => {
                         );
                       })}
                     </select>
-                    {paymentMethodsError && (
-                      <p className="text-xs text-red-500 mt-1">
-                        Failed to load payment methods. <button type="button" onClick={() => refetchPaymentMethods()} className="underline font-medium">Click to retry</button>
-                      </p>
-                    )}
-                    {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length === 0 && (
-                      <p className="text-xs text-yellow-600 mt-1">
-                        You need to add a payment method first. <button type="button" onClick={() => { setShowDepositModal(false); setShowAddPaymentModal(true); }} className="underline font-medium">Add Payment Method</button>
-                      </p>
-                    )}
                     {errors.paymentMethodId && (
                       <p className="text-red-500 text-sm mt-1">{errors.paymentMethodId.message}</p>
                     )}
                   </div>
 
                   <div className="flex gap-3">
-                    <Button type="submit" className="flex-1" disabled={depositMutation.isLoading || paymentMethodsLoading || paymentMethods.length === 0}>
+                    <Button type="submit" className="flex-1" disabled={depositMutation.isLoading}>
                       {depositMutation.isLoading ? 'Processing...' : 'Deposit'}
                     </Button>
                     <Button type="button" variant="outline" onClick={() => setShowDepositModal(false)} className="flex-1">
@@ -1087,7 +795,7 @@ const Wallet = () => {
                     step="0.01"
                     {...register('amount', { 
                       required: 'Amount is required',
-                      min: { value: 0.01, message: 'Minimum withdrawal is 0.01 USDT' },
+                      min: { value: 1, message: 'Minimum withdrawal is 1 USDT' },
                       max: { 
                         value: availableBalance || 0, 
                         message: 'Insufficient balance' 
@@ -1099,36 +807,23 @@ const Wallet = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Payment Method
-                      {paymentMethodsLoading && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
-                      {paymentMethodsError && <span className="text-xs text-red-500 ml-2">(Error)</span>}
-                      {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length === 0 && (
-                        <span className="text-xs text-yellow-600 ml-2">(No payment methods - add one below)</span>
-                      )}
-                      {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length > 0 && (
-                        <span className="text-xs text-gray-500 ml-2">({paymentMethods.length} available)</span>
-                      )}
                     </label>
                     <select
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       {...register('paymentMethodId', { 
                         required: 'Payment method is required' 
                       })}
-                      disabled={paymentMethodsLoading || paymentMethodsError}
                     >
-                      <option value="">
-                        {paymentMethodsLoading 
-                          ? 'Loading payment methods...' 
-                          : paymentMethodsError 
-                          ? 'Error loading payment methods' 
-                          : paymentMethods.length === 0
-                          ? 'No payment methods - add one first'
-                          : 'Select payment method'}
-                      </option>
+                      <option value="">Select payment method</option>
                       {paymentMethods.map((method) => {
-                        const cardType = method.card_type || method.type || method.cardType || 'Card';
-                        const cardNumber = method.card_number_masked || method.cardNumber || method.last_four_digits || method.card_number || '****';
-                        const cardHolder = method.card_holder_name || method.cardHolderName || method.holder_name || '';
-                        const displayName = cardHolder ? `${cardType} - ${cardNumber} (${cardHolder})` : `${cardType} - ${cardNumber}`;
+                        // Handle both normalized and raw structures
+                        const provider = method.provider || method.cardType || method.card_type || 'Card';
+                        const cardNumber = method.cardNumberMasked || 
+                                         method.card_number_masked || 
+                                         (method.cardDetails?.cardNumber 
+                                           ? '****' + method.cardDetails.cardNumber.slice(-4) 
+                                           : '****');
+                        const displayName = `${provider} - ${cardNumber}`;
                         
                         return (
                           <option key={method.id} value={method.id}>
@@ -1137,23 +832,13 @@ const Wallet = () => {
                         );
                       })}
                     </select>
-                    {paymentMethodsError && (
-                      <p className="text-xs text-red-500 mt-1">
-                        Failed to load payment methods. <button type="button" onClick={() => refetchPaymentMethods()} className="underline font-medium">Click to retry</button>
-                      </p>
-                    )}
-                    {!paymentMethodsLoading && !paymentMethodsError && paymentMethods.length === 0 && (
-                      <p className="text-xs text-yellow-600 mt-1">
-                        You need to add a payment method first. <button type="button" onClick={() => { setShowWithdrawModal(false); setShowAddPaymentModal(true); }} className="underline font-medium">Add Payment Method</button>
-                      </p>
-                    )}
                     {errors.paymentMethodId && (
                       <p className="text-red-500 text-sm mt-1">{errors.paymentMethodId.message}</p>
                     )}
                   </div>
 
                   <div className="flex gap-3">
-                    <Button type="submit" className="flex-1" disabled={withdrawMutation.isLoading || paymentMethodsLoading || paymentMethods.length === 0}>
+                    <Button type="submit" className="flex-1" disabled={withdrawMutation.isLoading}>
                       {withdrawMutation.isLoading ? 'Processing...' : 'Withdraw'}
                     </Button>
                     <Button type="button" variant="outline" onClick={() => setShowWithdrawModal(false)} className="flex-1">
