@@ -32,7 +32,8 @@ import AdminSidebar from '../../components/admin/AdminSidebar';
 import SafeAdminNotificationIcon from '../../components/admin/SafeAdminNotificationIcon';
 import MetricCards from '../../components/admin/MetricCards';
 import InvestmentChart from '../../components/admin/InvestmentChart';
-import { adminAPI, rewardsAPI } from '../../services/api';
+import { adminAPI, rewardsAPI, activitiesAPI } from '../../services/api';
+import { useMutation, useQueryClient } from 'react-query';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import PropertiesManagement from './PropertiesManagement';
 import UsersManagement from './UsersManagement';
@@ -54,6 +55,8 @@ const AdminDashboard = () => {
     to: null
   });
   const [showTopSellers, setShowTopSellers] = useState(true); // Flip state for tokens chart
+  const [activityFilter, setActivityFilter] = useState('all'); // 'all', 'admin', 'org_admin', 'user'
+  const [tabFilters, setTabFilters] = useState({}); // Store filters to apply when switching tabs
   const { adminUser, isAuthenticated, logout } = useAdminAuth();
   const navigate = useNavigate();
 
@@ -143,6 +146,65 @@ const AdminDashboard = () => {
       }
     }
   );
+
+  // Fetch activities with filter
+  const { data: activitiesData, isLoading: activitiesLoading, error: activitiesError } = useQuery(
+    ['admin-activities', activityFilter],
+    () => activitiesAPI.getAll({ 
+      userType: activityFilter === 'all' ? undefined : activityFilter,
+      limit: 50,
+      offset: 0
+    }),
+    {
+      enabled: isAuthenticated && activeTab === 'overview',
+      refetchInterval: 30000, // Refetch every 30 seconds
+      retry: 1,
+      onSuccess: (data) => {
+        console.log('Activities fetched successfully:', data);
+      },
+      onError: (error) => {
+        console.error('Activities fetch error:', error);
+      }
+    }
+  );
+
+  // Fetch activity count
+  const { data: activityCountData } = useQuery(
+    ['admin-activities-count', activityFilter],
+    () => activitiesAPI.getCount(activityFilter === 'all' ? undefined : activityFilter),
+    {
+      enabled: isAuthenticated && activeTab === 'overview',
+      retry: 1,
+      onError: (error) => {
+        console.log('Activity count fetch error:', error.message);
+      }
+    }
+  );
+
+  const queryClient = useQueryClient();
+  
+  // Delete all activities mutation
+  const deleteAllActivitiesMutation = useMutation(
+    () => activitiesAPI.deleteAll(),
+    {
+      onSuccess: () => {
+        // Invalidate and refetch activities
+        queryClient.invalidateQueries(['admin-activities']);
+        queryClient.invalidateQueries(['admin-activities-count']);
+        alert('All activities cleared successfully!');
+      },
+      onError: (error) => {
+        console.error('Failed to delete activities:', error);
+        alert('Failed to clear activities. Please try again.');
+      }
+    }
+  );
+
+  const handleClearAll = () => {
+    if (window.confirm('Are you sure you want to delete all activities? This action cannot be undone.')) {
+      deleteAllActivitiesMutation.mutate();
+    }
+  };
 
   // Fetch all organizations to get accurate count
   const { data: organizationsData } = useQuery(
@@ -605,143 +667,157 @@ const AdminDashboard = () => {
                    rewardsData?.data || 
                    (Array.isArray(rewardsData) ? rewardsData : []);
 
-    // Build recent activity feed
-    const recentActivities = [];
-    
-    // Add recent properties (created or updated in last 7 days)
-    properties.forEach(property => {
-      const createdDate = new Date(property.createdAt || property.created_at || 0);
-      const updatedDate = new Date(property.updatedAt || property.updated_at || property.createdAt || property.created_at || 0);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      if (createdDate >= sevenDaysAgo) {
-        recentActivities.push({
-          id: `property-created-${property.id}`,
-          type: 'property_created',
-          title: 'New Property Added',
-          description: property.title || property.name || 'Untitled Property',
-          amount: property.pricing_total_value || property.totalValueUSDT || 0,
-          date: createdDate,
-          icon: Plus,
-          color: 'blue',
-          onClick: () => setActiveTab('properties')
-        });
-      } else if (updatedDate >= sevenDaysAgo && updatedDate.getTime() !== createdDate.getTime()) {
-        recentActivities.push({
-          id: `property-updated-${property.id}`,
-          type: 'property_updated',
-          title: 'Property Updated',
-          description: property.title || property.name || 'Untitled Property',
-          amount: property.pricing_total_value || property.totalValueUSDT || 0,
-          date: updatedDate,
-          icon: Edit,
-          color: 'purple',
-          onClick: () => setActiveTab('properties')
-        });
+    // Transform API activities to match the UI format
+    // Handle different response structures
+    let activities = [];
+    if (activitiesData) {
+      if (Array.isArray(activitiesData)) {
+        activities = activitiesData;
+      } else if (activitiesData.activities) {
+        activities = activitiesData.activities;
+      } else if (activitiesData.data?.activities) {
+        activities = activitiesData.data.activities;
+      } else if (activitiesData.data && Array.isArray(activitiesData.data)) {
+        activities = activitiesData.data;
       }
-    });
+      console.log('Parsed activities:', activities.length, activities);
+    }
+    const sortedActivities = activities.map(activity => {
+      // Determine icon and color based on action/endpoint
+      let icon = Activity;
+      let color = 'blue';
+      let onClick = () => {};
 
-    // Add recent investments
-    investments.forEach(inv => {
-      const createdDate = new Date(inv.createdAt || inv.created_at || inv.date || 0);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      // Extract IDs from activity for filtering
+      const userId = activity.userId;
+      const propertyId = activity.requestBody?.propertyId || activity.responseData?.propertyId;
+      const orgAdminId = activity.orgAdminId;
       
-      if (createdDate >= sevenDaysAgo) {
-        const propertyName = inv.property?.title || inv.property?.name || 'Unknown Property';
-        const amount = parseFloat(inv.amountUSDT || inv.amount || inv.invested_amount || 0);
-        const status = (inv.status || '').toLowerCase();
+      // Extract transaction displayCode from response data (stored as JSONB in activity entity)
+      // Response structure: { success: true, data: { investment, transaction, property, user, ... } }
+      let transactionDisplayCode = null;
+      const responseData = activity.responseData;
+      if (responseData) {
+        // Check various response structures
+        if (responseData.data?.transaction?.displayCode) {
+          transactionDisplayCode = responseData.data.transaction.displayCode;
+        } else if (responseData.transaction?.displayCode) {
+          transactionDisplayCode = responseData.transaction.displayCode;
+        } else if (responseData.data?.displayCode && typeof responseData.data.displayCode === 'string' && responseData.data.displayCode.startsWith('TXN-')) {
+          transactionDisplayCode = responseData.data.displayCode;
+        } else if (responseData.displayCode && typeof responseData.displayCode === 'string' && responseData.displayCode.startsWith('TXN-')) {
+          transactionDisplayCode = responseData.displayCode;
+        }
         
-        recentActivities.push({
-          id: `investment-${inv.id}`,
-          type: 'investment',
-          title: status === 'pending' ? 'New Investment (Pending)' : 'New Investment',
-          description: `${propertyName}`,
-          amount: amount,
-          date: createdDate,
-          icon: TrendingUp,
-          color: status === 'pending' ? 'orange' : 'green',
-          onClick: () => setActiveTab('investments')
-        });
+        // Debug logging
+        if (activity.action === 'New Investment' || activity.action === 'Investment Created') {
+          console.log('Investment activity transaction code:', transactionDisplayCode, 'from responseData:', responseData);
+        }
       }
-    });
-
-    // Add recent transactions
-    transactions.forEach(txn => {
-      const createdDate = new Date(txn.createdAt || txn.created_at || txn.date || 0);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       
-      if (createdDate >= sevenDaysAgo) {
-        const amount = parseFloat(txn.amountUSDT || txn.amount || txn.amount_in_pkr || 0);
-        const txnType = txn.type || txn.transaction_type || 'Transaction';
-        
-        recentActivities.push({
-          id: `transaction-${txn.id || txn._id}`,
-          type: 'transaction',
-          title: txnType,
-          description: `Transaction processed`,
-          amount: amount,
-          date: createdDate,
-          icon: Activity,
-          color: 'blue',
-          onClick: () => setActiveTab('transactions')
-        });
+      // Get user displayCode for filtering (if userId exists, we'll look it up)
+      let userDisplayCode = null;
+      if (userId && users.length > 0) {
+        const user = users.find(u => u.id === userId);
+        if (user) {
+          userDisplayCode = user.displayCode;
+        }
       }
-    });
 
-    // Add recent users
-    users.forEach(user => {
-      const createdDate = new Date(user.createdAt || user.created_at || 0);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      if (createdDate >= sevenDaysAgo) {
-        const userName = user.fullName || user.name || user.email || 'New User';
-        
-        recentActivities.push({
-          id: `user-${user.id}`,
-          type: 'user_created',
-          title: 'New User Registered',
-          description: userName,
-          amount: 0,
-          date: createdDate,
-          icon: Users,
-          color: 'green',
-          onClick: () => setActiveTab('users')
-        });
+      if (activity.action === 'Property Updated' || activity.action === 'Property Created') {
+        icon = Edit;
+        color = 'purple';
+        onClick = () => {
+          if (propertyId) {
+            setTabFilters({ properties: { search: propertyId } });
+          }
+          setActiveTab('properties');
+        };
+      } else if (activity.action === 'New Investment' || activity.action === 'Investment Created') {
+        icon = TrendingUp;
+        color = 'green';
+        onClick = () => {
+          // Route to investments page - no filters
+          setActiveTab('investments');
+        };
+      } else if (activity.action === 'deposit' || activity.action === 'Deposit') {
+        icon = DollarSign;
+        color = 'blue';
+        onClick = () => {
+          // Simply route to transactions - no filters
+          setActiveTab('transactions');
+        };
+      } else if (activity.action === 'withdrawal' || activity.action === 'Withdrawal') {
+        icon = DollarSign;
+        color = 'orange';
+        onClick = () => {
+          // Simply route to transactions - no filters
+          setActiveTab('transactions');
+        };
+      } else if (activity.action === 'transaction' || activity.action === 'Transaction') {
+        icon = DollarSign;
+        color = 'blue';
+        onClick = () => {
+          // Simply route to transactions - no filters
+          setActiveTab('transactions');
+        };
+      } else if (activity.action === 'New User Registered' || activity.action === 'User Updated') {
+        icon = Users;
+        color = 'green';
+        onClick = () => {
+          if (userDisplayCode) {
+            setTabFilters({ users: { search: userDisplayCode } });
+          } else if (userId) {
+            setTabFilters({ users: { search: userId } });
+          }
+          setActiveTab('users');
+        };
+      } else if (activity.action === 'Reward Distributed') {
+        icon = Gift;
+        color = 'purple';
+        onClick = () => {
+          // Extract propertyId from requestBody or description
+          const propId = propertyId || 
+                        (activity.requestBody?.propertyId) ||
+                        (activity.description?.match(/for\s+([A-Z0-9-]+)/i)?.[1]);
+          if (propId) {
+            setTabFilters({ properties: { search: propId } });
+          }
+          setActiveTab('properties');
+        };
       }
-    });
 
-    // Add recent rewards
-    rewards.forEach(reward => {
-      const createdDate = new Date(reward.createdAt || reward.created_at || reward.distributedAt || reward.distributed_at || 0);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      if (createdDate >= sevenDaysAgo) {
-        const amount = parseFloat(reward.amountUSDT || reward.amount || reward.totalRoiUSDT || 0);
-        const propertyName = reward.property?.title || reward.property?.name || 'Property';
-        
-        recentActivities.push({
-          id: `reward-${reward.id || reward._id}`,
-          type: 'reward',
-          title: 'Reward Distributed',
-          description: `${propertyName}`,
-          amount: amount,
-          date: createdDate,
-          icon: Gift,
-          color: 'purple',
-          onClick: () => setActiveTab('investments')
-        });
+      // Extract propertyId from various sources for rewards
+      let extractedPropertyId = propertyId;
+      if (!extractedPropertyId && activity.action === 'Reward Distributed') {
+        extractedPropertyId = activity.requestBody?.propertyId || 
+                             activity.responseData?.propertyId ||
+                             (activity.description?.match(/for\s+([A-Z0-9-]+)/i)?.[1]);
       }
-    });
 
-    // Sort activities by date (most recent first) and limit to 20
-    const sortedActivities = recentActivities
-      .sort((a, b) => b.date - a.date)
-      .slice(0, 20);
+      return {
+        id: activity.id,
+        type: activity.action?.toLowerCase().replace(/\s+/g, '_') || 'activity',
+        title: activity.action || `${activity.method} ${activity.endpoint}`,
+        description: (activity.description && 
+                      activity.description !== activity.endpoint && 
+                      !activity.description.startsWith('/') &&
+                      activity.description.length > 0)
+          ? activity.description 
+          : (activity.action || 'Activity'),
+        amount: activity.amount ? parseFloat(activity.amount.replace(/[^0-9.-]/g, '')) : 0,
+        date: new Date(activity.createdAt),
+        icon,
+        color,
+        onClick,
+        userType: activity.userType,
+        userName: activity.userName,
+        userId: activity.userId,
+        propertyId: extractedPropertyId,
+        requestBody: activity.requestBody,
+        responseData: activity.responseData,
+      };
+    });
 
     // Format date helper for activity feed
     const formatActivityDate = (date) => {
@@ -1242,13 +1318,74 @@ const AdminDashboard = () => {
                   <p className="text-[10px] text-muted-foreground">Latest updates across the platform</p>
                 </div>
               </div>
-              <Badge variant="info" className="text-xs">
-                {sortedActivities.length} activities
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="info" className="text-xs">
+                  {activityCountData?.count || sortedActivities.length} activities
+                </Badge>
+                {sortedActivities.length > 0 && (
+                  <Button
+                    onClick={handleClearAll}
+                    disabled={deleteAllActivitiesMutation.isLoading}
+                    variant="outline"
+                    className="text-xs px-3 py-1.5 h-auto bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30"
+                  >
+                    {deleteAllActivitiesMutation.isLoading ? 'Clearing...' : 'Clear All'}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Filter Buttons */}
+            <div className="flex gap-2 mb-4 flex-wrap">
+              <button
+                onClick={() => setActivityFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activityFilter === 'all'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setActivityFilter('admin')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activityFilter === 'admin'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                Admin
+              </button>
+              <button
+                onClick={() => setActivityFilter('org_admin')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activityFilter === 'org_admin'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                ORG Admin
+              </button>
+              <button
+                onClick={() => setActivityFilter('user')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activityFilter === 'user'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                Users
+              </button>
             </div>
             
             <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-              {sortedActivities.length > 0 ? (
+              {activitiesLoading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm">Loading activities...</p>
+                </div>
+              ) : sortedActivities.length > 0 ? (
                 sortedActivities.map((activity) => {
                   const Icon = activity.icon;
                   const colorClasses = {
@@ -1317,11 +1454,11 @@ const AdminDashboard = () => {
         return renderOverview();
       case 'properties':
         console.log('📦 Rendering PropertiesManagement');
-        return <PropertiesManagement />;
+        return <PropertiesManagement initialFilters={tabFilters.properties} onFiltersSet={() => setTabFilters({ ...tabFilters, properties: undefined })} />;
       case 'users':
-        return <UsersManagement />;
+        return <UsersManagement initialFilters={tabFilters.users} onFiltersSet={() => setTabFilters({ ...tabFilters, users: undefined })} />;
       case 'transactions':
-        return <TransactionsManagement />;
+        return <TransactionsManagement initialFilters={tabFilters.transactions} onFiltersSet={() => setTabFilters({ ...tabFilters, transactions: undefined })} />;
       case 'investments':
         return <InvestmentsManagement />;
       case 'organizations':

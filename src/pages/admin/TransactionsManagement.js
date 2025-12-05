@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { 
   Search, 
@@ -20,17 +20,28 @@ import { adminAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
 
-const TransactionsManagement = () => {
+const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
   const { isAuthenticated } = useAdminAuth();
   
   const [filters, setFilters] = useState({
-    search: '',
-    status: '',
-    transaction_type: '',
-    property: '',
+    search: initialFilters?.search || '',
+    status: initialFilters?.status || '',
+    transaction_type: initialFilters?.transaction_type || '',
+    property: initialFilters?.property || '',
     sort_by: 'created_at',
     sort_order: 'desc'
   });
+
+  // Apply initial filters when component mounts or initialFilters change
+  useEffect(() => {
+    if (initialFilters && Object.keys(initialFilters).length > 0) {
+      setFilters(prev => ({ ...prev, ...initialFilters }));
+      if (onFiltersSet) {
+        // Clear initial filters after applying
+        setTimeout(() => onFiltersSet(), 100);
+      }
+    }
+  }, [initialFilters, onFiltersSet]);
   const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch transactions

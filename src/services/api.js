@@ -348,6 +348,13 @@ export const rewardsAPI = {
   distributeRoi: (roiData) => blocksApi.post('/rewards/distribute', roiData), // Distribute ROI rewards via Blocks Backend - expects { propertyId, totalRoiUSDT }
 };
 
+// Activities API (Complete)
+export const activitiesAPI = {
+  getAll: (params) => api.get('/activities', { params }), // GET /activities?userType=all&limit=50&offset=0
+  getCount: (userType) => api.get('/activities/count', { params: { userType } }), // GET /activities/count?userType=all
+  deleteAll: () => api.delete('/activities'), // DELETE /activities - Delete all activities
+};
+
 // Upload API (File uploads)
 export const uploadAPI = {
   // Upload single image

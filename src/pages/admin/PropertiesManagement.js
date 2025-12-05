@@ -38,17 +38,28 @@ import { cn } from '../../utils/cn';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
 import Loader from '../../components/Loder';
 
-const PropertiesManagement = () => {
+const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   const toast = useToast();
   const { isAuthenticated } = useAdminAuth();
   
   const [filters, setFilters] = useState({
-    search: '',
-    status: '',
-    property_type: '',
+    search: initialFilters?.search || '',
+    status: initialFilters?.status || '',
+    property_type: initialFilters?.property_type || '',
     sort_by: 'created_at',
     sort_order: 'desc'
   });
+
+  // Apply initial filters when component mounts or initialFilters change
+  useEffect(() => {
+    if (initialFilters && Object.keys(initialFilters).length > 0) {
+      setFilters(prev => ({ ...prev, ...initialFilters }));
+      if (onFiltersSet) {
+        // Clear initial filters after applying
+        setTimeout(() => onFiltersSet(), 100);
+      }
+    }
+  }, [initialFilters, onFiltersSet]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showModal, setShowModal] = useState(false);
