@@ -3,13 +3,11 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 
-// Ensure dark mode is applied on initial load
+// Ensure theme is applied on initial load
 const rootElement = document.documentElement;
-const savedTheme = localStorage.getItem('theme') || 'dark';
-if (!rootElement.classList.contains('dark') && savedTheme === 'dark') {
-  rootElement.classList.add('dark');
-  rootElement.classList.remove('light');
-}
+const savedTheme = localStorage.getItem('theme') || 'light';
+rootElement.classList.remove('light', 'dark');
+rootElement.classList.add(savedTheme);
 
 // Register service worker early for push notifications
 if ('serviceWorker' in navigator) {
