@@ -3,43 +3,14 @@ import { Bell } from 'lucide-react';
 import { useQuery } from 'react-query';
 import { adminAPI } from '../../services/api';
 import { useAdminAuth } from './AdminAuth';
-import { useNavigate } from 'react-router-dom';
 import { useWebPush } from '../../hooks/useWebPush';
-import { API_BASE_URL } from '../../config/api';
 
-const AdminNotificationIcon = () => {
+const AdminNotificationIcon = ({ onToggle }) => {
   const { adminUser } = useAdminAuth();
-  const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
-  const [blocksAdminUserId, setBlocksAdminUserId] = useState(null);
   const [error, setError] = useState(null);
-  const { isSupported, isSubscribed, enableNotifications } = useWebPush();
+  const { isSupported, isSubscribed } = useWebPush();
 
-  // Get Blocks admin user ID on mount
-  useEffect(() => {
-    let isMounted = true;
-    const fetchBlocksAdminId = async () => {
-      try {
-        setError(null);
-        const usersResponse = await adminAPI.getUsers({ limit: 1, role: 'admin' });
-        const blocksAdminUser = usersResponse?.data?.users?.[0] || usersResponse?.data?.data?.users?.[0];
-        if (isMounted && blocksAdminUser?.id) {
-          setBlocksAdminUserId(blocksAdminUser.id);
-        }
-      } catch (error) {
-        console.error('Failed to fetch Blocks admin user ID:', error);
-        if (isMounted) {
-          setError(error.message);
-        }
-      }
-    };
-    if (adminUser) {
-      fetchBlocksAdminId();
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [adminUser]);
 
   // Fetch Blocks admin notifications
   const { data: notificationsData, refetch } = useQuery(
@@ -76,22 +47,14 @@ const AdminNotificationIcon = () => {
     }
   );
 
-  const handleClick = async (e) => {
+  const handleClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // If notifications are not enabled and browser supports it, prompt to enable
-    if (isSupported && !isSubscribed && Notification.permission === 'default') {
-      e.preventDefault();
-      try {
-        await enableNotifications();
-        // After enabling, navigate to admin notifications page
-        navigate('/admin/notifications');
-      } catch (error) {
-        console.error('Failed to enable notifications:', error);
-        navigate('/admin/notifications');
-      }
+    console.log('🔔 Notification bell clicked, onToggle:', onToggle);
+    if (onToggle) {
+      onToggle();
     } else {
-      navigate('/admin/notifications');
+      console.warn('⚠️ onToggle prop not provided to AdminNotificationIcon');
     }
   };
 

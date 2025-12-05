@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../../config/api';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { 
@@ -37,6 +37,9 @@ import { useToast } from '../../components/ui/Toast';
 import { cn } from '../../utils/cn';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
 import Loader from '../../components/Loder';
+import InputTwo from '../../components/ui/InputTwo';
+
+// No separate filter button component needed anymore
 
 const PropertiesManagement = () => {
   const toast = useToast();
@@ -44,8 +47,8 @@ const PropertiesManagement = () => {
   
   const [filters, setFilters] = useState({
     search: '',
-    status: '',
-    property_type: '',
+    status: [], // Array for multi-select
+    property_type: [], // Array for multi-select
     sort_by: 'created_at',
     sort_order: 'desc'
   });
@@ -65,8 +68,36 @@ const PropertiesManagement = () => {
   const [selectedPropertyId, setSelectedPropertyId] = useState(null); // Property ID for full details view
   const [propertyDetailsTab, setPropertyDetailsTab] = useState('overview'); // Active tab for property details
   const [panelHistory, setPanelHistory] = useState([]); // Track navigation history for back/forward navigation
+  const hoverTimeoutRef = useRef(null); // Ref for hover timeout to prevent switching on random scrolling
+  const [openFilterPanel, setOpenFilterPanel] = useState(null); // Track if main filter panel is open: 'main' or null
+  const filterPanelRef = useRef(null); // Ref for filter panel container to handle click outside
 
   const queryClient = useQueryClient();
+
+  // Cleanup hover timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Handle click outside to close filter panels
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target)) {
+        setOpenFilterPanel(null);
+      }
+    };
+
+    if (openFilterPanel) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [openFilterPanel]);
 
   // Fetch property details for full details view
   const { data: fullPropertyData, isLoading: fullPropertyLoading } = useQuery(
@@ -661,21 +692,23 @@ const PropertiesManagement = () => {
       });
     }
     
-    // Status filter
-    if (filters.status && filters.status.trim()) {
+    // Status filter (multi-select)
+    if (filters.status && Array.isArray(filters.status) && filters.status.length > 0) {
       filtered = filtered.filter(property => {
         const propertyStatus = (property.status || '').toLowerCase();
-        const filterStatus = filters.status.toLowerCase();
-        return propertyStatus === filterStatus;
+        return filters.status.some(filterStatus => 
+          propertyStatus === filterStatus.toLowerCase()
+        );
       });
     }
     
-    // Property type filter
-    if (filters.property_type && filters.property_type.trim()) {
+    // Property type filter (multi-select)
+    if (filters.property_type && Array.isArray(filters.property_type) && filters.property_type.length > 0) {
       filtered = filtered.filter(property => {
         const propertyType = (property.property_type || property.propertyType || property.type || '').toLowerCase();
-        const filterType = filters.property_type.toLowerCase();
-        return propertyType === filterType;
+        return filters.property_type.some(filterType => 
+          propertyType === filterType.toLowerCase()
+        );
       });
     }
     
@@ -999,20 +1032,42 @@ const PropertiesManagement = () => {
   // Count active filters
   const activeFiltersCount = [
     filters.search,
-    filters.status,
-    filters.property_type
+    ...(Array.isArray(filters.status) ? filters.status : []),
+    ...(Array.isArray(filters.property_type) ? filters.property_type : [])
   ].filter(Boolean).length;
 
   // Clear all filters
   const clearAllFilters = () => {
     setFilters({
       search: '',
-      status: '',
-      property_type: '',
+      status: [],
+      property_type: [],
       sort_by: 'created_at',
       sort_order: 'desc'
     });
     // Filters are applied on frontend, no need to reset page
+  };
+
+  // Toggle filter value (for multi-select)
+  const toggleFilter = (filterKey, value) => {
+    setFilters(prev => {
+      const currentArray = Array.isArray(prev[filterKey]) ? prev[filterKey] : [];
+      const isSelected = currentArray.includes(value);
+      
+      if (isSelected) {
+        // Remove from array
+        return {
+          ...prev,
+          [filterKey]: currentArray.filter(v => v !== value)
+        };
+      } else {
+        // Add to array
+        return {
+          ...prev,
+          [filterKey]: [...currentArray, value]
+        };
+      }
+    });
   };
 
   return (
@@ -1079,153 +1134,297 @@ const PropertiesManagement = () => {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Search
-              {filters.search && <span className="ml-1 text-blue-600">*</span>}
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search properties..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                  }
-                }}
-                className={`w-full pl-10 pr-3 py-2 border rounded-lg bg-card text-card-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:border-ring ${
-                  filters.search ? 'border-primary bg-accent' : 'border-input'
-                }`}
-              />
+            {/* Unified Filter System */}
+            <div className="relative w-full space-y-4" ref={filterPanelRef}>
+              {/* Top Row: Search + Single Filters Button */}
+              <div className="flex gap-4">
+                {/* Search Input - Takes most space */}
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Search Properties
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                    <InputTwo
+                      type="text"
+                      name="search"
+                      placeholder="Search by name, location, code..."
+                      value={filters.search}
+                      onChange={(e) => handleFilterChange("search", e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                      style={{ paddingLeft: "48px" }}
+                    />
+                  </div>
+                </div>
+
+                {/* Single Unified Filters Button */}
+                <div className="flex-shrink-0">
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Filters
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setOpenFilterPanel(prev => prev === 'main' ? null : 'main')}
+                    className={cn(
+                      "px-5 py-2 border rounded-lg bg-card text-card-foreground flex items-center gap-2 transition-all hover:border-primary/50 min-w-[120px]",
+                      openFilterPanel === 'main' || activeFiltersCount > 0
+                        ? 'border-primary bg-accent font-semibold' 
+                        : 'border-input'
+                    )}
+                  >
+                    <Filter className="w-4 h-4" />
+                    <span className="text-sm">Filters</span>
+                    {activeFiltersCount > 0 && (
+                      <span className="ml-1 px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                    <span className={cn(
+                      "transition-transform duration-200",
+                      openFilterPanel === 'main' ? "rotate-180" : ""
+                    )}>▼</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded Filter Panel - Opens below in empty space */}
+              {openFilterPanel === 'main' && (
+                <div className="w-full rounded-xl p-6 bg-gradient-to-br from-white/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60 backdrop-blur-xl border border-white/30 dark:border-slate-700/50 shadow-xl animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Status Section - Multi-select */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <span className="w-1 h-4 bg-blue-600 rounded-full"></span>
+                        Status
+                        {Array.isArray(filters.status) && filters.status.length > 0 && (
+                          <span className="ml-2 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium">
+                            {filters.status.length} selected
+                          </span>
+                        )}
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: 'active', label: 'Active' },
+                          { value: 'coming-soon', label: 'Coming Soon' },
+                          { value: 'funding', label: 'Funding' },
+                          { value: 'construction', label: 'Under Construction' },
+                          { value: 'generating-income', label: 'Generating Income' },
+                          { value: 'on-hold', label: 'On Hold' },
+                          { value: 'sold-out', label: 'Sold Out' },
+                          { value: 'completed', label: 'Completed' },
+                          { value: 'pending', label: 'Pending' }
+                        ].map((option) => {
+                          const isActive = Array.isArray(filters.status) && filters.status.includes(option.value);
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => toggleFilter('status', option.value)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
+                                isActive
+                                  ? "bg-blue-600 text-white border-blue-600 shadow-md hover:bg-blue-700"
+                                  : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700"
+                              )}
+                            >
+                              {isActive && <span className="text-xs">✓</span>}
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {Array.isArray(filters.status) && filters.status.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFilters(prev => ({ ...prev, status: [] }))}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          Clear all status filters
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Property Type Section - Multi-select */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <span className="w-1 h-4 bg-green-600 rounded-full"></span>
+                        Property Type
+                        {Array.isArray(filters.property_type) && filters.property_type.length > 0 && (
+                          <span className="ml-2 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-medium">
+                            {filters.property_type.length} selected
+                          </span>
+                        )}
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: 'residential', label: 'Residential' },
+                          { value: 'commercial', label: 'Commercial' },
+                          { value: 'mixed-use', label: 'Mixed Use' }
+                        ].map((option) => {
+                          const isActive = Array.isArray(filters.property_type) && filters.property_type.includes(option.value);
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => toggleFilter('property_type', option.value)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
+                                isActive
+                                  ? "bg-green-600 text-white border-green-600 shadow-md hover:bg-green-700"
+                                  : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-slate-700"
+                              )}
+                            >
+                              {isActive && <span className="text-xs">✓</span>}
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {Array.isArray(filters.property_type) && filters.property_type.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFilters(prev => ({ ...prev, property_type: [] }))}
+                          className="text-xs text-green-600 dark:text-green-400 hover:underline"
+                        >
+                          Clear all type filters
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Sort By Section */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <span className="w-1 h-4 bg-purple-600 rounded-full"></span>
+                        Sort By
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: 'created_at', label: 'Date Created' },
+                          { value: 'title', label: 'Title' },
+                          { value: 'pricing_total_value', label: 'Total Value' },
+                          { value: 'pricing_expected_roi', label: 'Expected ROI' }
+                        ].map((option) => {
+                          const isActive = filters.sort_by === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => handleFilterChange('sort_by', option.value)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                                isActive
+                                  ? "bg-purple-600 text-white border-purple-600 shadow-md"
+                                  : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-slate-700"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Sort Order Section */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <span className="w-1 h-4 bg-orange-600 rounded-full"></span>
+                        Sort Order
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: 'desc', label: 'Descending ↓' },
+                          { value: 'asc', label: 'Ascending ↑' }
+                        ].map((option) => {
+                          const isActive = filters.sort_order === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => handleFilterChange('sort_order', option.value)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                                isActive
+                                  ? "bg-orange-600 text-white border-orange-600 shadow-md"
+                                  : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-orange-50 dark:hover:bg-slate-700"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Active Filters Chips Bar - Always visible when filters applied */}
+              {activeFiltersCount > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Status chips - show each selected status */}
+                  {Array.isArray(filters.status) && filters.status.length > 0 && filters.status.map((status) => {
+                    const statusLabels = {
+                      'coming-soon': 'Coming Soon',
+                      'active': 'Active',
+                      'construction': 'Under Construction',
+                      'funding': 'Funding',
+                      'generating-income': 'Generating Income',
+                      'on-hold': 'On Hold',
+                      'sold-out': 'Sold Out',
+                      'completed': 'Completed',
+                      'pending': 'Pending'
+                    };
+                    return (
+                      <div 
+                        key={status}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors shadow-sm"
+                        onClick={() => toggleFilter('status', status)}
+                      >
+                        <span>Status: {statusLabels[status] || status}</span>
+                        <X className="w-3 h-3" />
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Property Type chips - show each selected type */}
+                  {Array.isArray(filters.property_type) && filters.property_type.length > 0 && filters.property_type.map((type) => {
+                    const typeLabels = {
+                      'residential': 'Residential',
+                      'commercial': 'Commercial',
+                      'mixed-use': 'Mixed Use'
+                    };
+                    return (
+                      <div 
+                        key={type}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
+                        onClick={() => toggleFilter('property_type', type)}
+                      >
+                        <span>Type: {typeLabels[type] || type}</span>
+                        <X className="w-3 h-3" />
+                      </div>
+                    );
+                  })}
+                  
+                  {filters.search && (
+                    <div 
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-medium cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors shadow-sm"
+                      onClick={() => handleFilterChange('search', '')}
+                    >
+                      <span>Search: "{filters.search}"</span>
+                      <X className="w-3 h-3" />
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium shadow-sm">
+                    <span>{filters.sort_by === 'created_at' ? 'Date' : 
+                              filters.sort_by === 'title' ? 'Title' :
+                              filters.sort_by === 'pricing_total_value' ? 'Value' : 'ROI'}</span>
+                    <span>{filters.sort_order === 'desc' ? '↓' : '↑'}</span>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Status
-              {filters.status && <span className="ml-1 text-blue-600">*</span>}
-            </label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg bg-card text-card-foreground focus:ring-2 focus:ring-ring focus:border-ring ${
-                filters.status ? 'border-primary bg-accent font-semibold' : 'border-input'
-              }`}
-            >
-              <option value="">All Status</option>
-              <option value="coming-soon">Coming Soon</option>
-              <option value="active">Active</option>
-              <option value="construction">Under Construction</option>
-              <option value="funding">Funding</option>
-              <option value="generating-income">Generating Income</option>
-              <option value="on-hold">On Hold</option>
-              <option value="sold-out">Sold Out</option>
-              <option value="completed">Completed</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Property Type
-              {filters.property_type && <span className="ml-1 text-blue-600">*</span>}
-            </label>
-            <select
-              value={filters.property_type}
-              onChange={(e) => handleFilterChange('property_type', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg bg-card text-card-foreground focus:ring-2 focus:ring-ring focus:border-ring ${
-                filters.property_type ? 'border-primary bg-accent font-semibold' : 'border-input'
-              }`}
-            >
-              <option value="">All Types</option>
-              <option value="residential">Residential</option>
-              <option value="commercial">Commercial</option>
-              <option value="mixed-use">Mixed Use</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Sort By</label>
-            <select
-              value={filters.sort_by}
-              onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-              className="w-full px-3 py-2 border border-input bg-card text-card-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="created_at">Date Created</option>
-              <option value="title">Title</option>
-              <option value="pricing_total_value">Total Value</option>
-              <option value="pricing_expected_roi">Expected ROI</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Order</label>
-            <select
-              value={filters.sort_order}
-              onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-              className="w-full px-3 py-2 border border-input bg-card text-card-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="desc">Descending ↓</option>
-              <option value="asc">Ascending ↑</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Active Filters Display */}
-        {activeFiltersCount > 0 && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground">Active Filters:</span>
-              
-              {filters.search && (
-                <Badge variant="info" className="flex items-center space-x-1">
-                  <span>Search: "{filters.search}"</span>
-                  <button
-                    onClick={() => handleFilterChange('search', '')}
-                    className="ml-1 hover:text-red-600"
-                  >
-                    ×
-                  </button>
-                </Badge>
-              )}
-              
-              {filters.status && (
-                <Badge variant="info" className="flex items-center space-x-1">
-                  <span>Status: {filters.status}</span>
-                  <button
-                    onClick={() => handleFilterChange('status', '')}
-                    className="ml-1 hover:text-red-600"
-                  >
-                    ×
-                  </button>
-                </Badge>
-              )}
-              
-              {filters.property_type && (
-                <Badge variant="info" className="flex items-center space-x-1">
-                  <span>Type: {filters.property_type}</span>
-                  <button
-                    onClick={() => handleFilterChange('property_type', '')}
-                    className="ml-1 hover:text-red-600"
-                  >
-                    ×
-                  </button>
-                </Badge>
-              )}
-              
-              <Badge variant="secondary" className="ml-auto">
-                Sorted by: {filters.sort_by === 'created_at' ? 'Date Created' : 
-                          filters.sort_by === 'title' ? 'Title' :
-                          filters.sort_by === 'pricing_total_value' ? 'Total Value' : 'Expected ROI'} 
-                {filters.sort_order === 'desc' ? ' ↓' : ' ↑'}
-              </Badge>
-            </div>
-          </div>
-        )}
       </Card>
 
           {/* Properties Grid */}
@@ -1310,13 +1509,22 @@ const PropertiesManagement = () => {
                 });
                 const statusInfo = getStatusBadge(mappedProperty.status);
                 const propertyImage = getPropertyImage(mappedProperty);
+                const propertyId = mappedProperty.id || mappedProperty.displayCode;
+                const isSelected = actionPanel === 'full-details' && selectedPropertyId && (
+                  propertyId === selectedPropertyId || 
+                  String(propertyId) === String(selectedPropertyId)
+                );
 
                 return (
                   <div 
                     key={mappedProperty.id}
-                    className="group overflow-hidden rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02] bg-white/5 dark:bg-black/20 backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-lg hover:shadow-xl"
+                    className={cn(
+                      "group overflow-hidden rounded-xl cursor-pointer transition-all duration-300 hover:scale-[1.02] bg-white/5 dark:bg-black/20 backdrop-blur-xl border shadow-lg hover:shadow-xl",
+                      isSelected
+                        ? "border-primary border-2 ring-2 ring-primary/50 ring-offset-2 bg-primary/10 dark:bg-primary/20 scale-[1.02] shadow-xl"
+                        : "border-white/20 dark:border-white/10 hover:border-primary/50"
+                    )}
                     onClick={() => {
-                      const propertyId = mappedProperty.id || mappedProperty.displayCode;
                       if (propertyId) {
                         setSelectedPropertyId(propertyId);
                         setActionPanel('full-details');
@@ -1502,7 +1710,7 @@ const PropertiesManagement = () => {
                 const roi = selectedProperty.pricing_expected_roi || selectedProperty.expectedROI || 0;
                 
                 return (
-                  <div className="space-y-4">
+                  <div className="space-y-4 ">
                     {/* Investment Stats Cards */}
                     <div className="grid grid-cols-2 gap-3">
                       <Card variant="tertiary" className="p-3">
@@ -1670,14 +1878,32 @@ const PropertiesManagement = () => {
                         <label className="block text-sm font-medium text-card-foreground mb-2">
                           Total ROI Amount (USDT) *
                         </label>
-                        <Input
+                        <input
                           type="number"
+                          name="rewardAmount"
                           step="0.01"
                           min="0.01"
                           placeholder="Enter amount in USDT (e.g., 10000)"
                           value={rewardAmount}
                           onChange={(e) => setRewardAmount(e.target.value)}
                           className="w-full"
+                          style={{
+                            border: 'none',
+                            padding: '1rem',
+                            borderRadius: '1rem',
+                            background: '#e8e8e8',
+                            boxShadow: '20px 20px 60px #c5c5c5, -20px -20px 60px #ffffff',
+                            transition: '0.3s'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.outlineColor = '#e8e8e8';
+                            e.target.style.background = '#e8e8e8';
+                            e.target.style.boxShadow = 'inset 20px 20px 60px #c5c5c5, inset -20px -20px 60px #ffffff';
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.background = '#e8e8e8';
+                            e.target.style.boxShadow = '20px 20px 60px #c5c5c5, -20px -20px 60px #ffffff';
+                          }}
                         />
                       </div>
 
@@ -2301,7 +2527,29 @@ const PropertiesManagement = () => {
                           return (
                             <button
                               key={tab.id}
-                              onClick={() => setPropertyDetailsTab(tab.id)}
+                              onMouseEnter={() => {
+                                // Clear any existing timeout
+                                if (hoverTimeoutRef.current) {
+                                  clearTimeout(hoverTimeoutRef.current);
+                                }
+                                // Set a short delay before switching tabs
+                                hoverTimeoutRef.current = setTimeout(() => {
+                                  setPropertyDetailsTab(tab.id);
+                                }, 150); // 150ms delay to prevent switching on random scrolling
+                              }}
+                              onMouseLeave={() => {
+                                // Clear timeout if mouse leaves before delay completes
+                                if (hoverTimeoutRef.current) {
+                                  clearTimeout(hoverTimeoutRef.current);
+                                }
+                              }}
+                              onClick={() => {
+                                // Clear timeout and switch immediately on click
+                                if (hoverTimeoutRef.current) {
+                                  clearTimeout(hoverTimeoutRef.current);
+                                }
+                                setPropertyDetailsTab(tab.id);
+                              }}
                               className={cn(
                                 "flex items-center space-x-1 py-2 px-1 border-b-2 font-medium text-xs transition-colors whitespace-nowrap",
                                 propertyDetailsTab === tab.id
@@ -2631,14 +2879,32 @@ const PropertiesManagement = () => {
                     <label className="block text-sm font-medium text-card-foreground mb-2">
                       Total ROI Amount (USDT) *
                     </label>
-                    <Input
+                    <input
                       type="number"
+                      name="rewardAmountModal"
                       step="0.01"
                       min="0.01"
                       placeholder="Enter amount in USDT (e.g., 10000)"
                       value={rewardAmount}
                       onChange={(e) => setRewardAmount(e.target.value)}
                       className="w-full text-lg font-semibold"
+                      style={{
+                        border: 'none',
+                        padding: '1rem',
+                        borderRadius: '1rem',
+                        background: '#e8e8e8',
+                        boxShadow: '20px 20px 60px #c5c5c5, -20px -20px 60px #ffffff',
+                        transition: '0.3s'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.outlineColor = '#e8e8e8';
+                        e.target.style.background = '#e8e8e8';
+                        e.target.style.boxShadow = 'inset 20px 20px 60px #c5c5c5, inset -20px -20px 60px #ffffff';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.background = '#e8e8e8';
+                        e.target.style.boxShadow = '20px 20px 60px #c5c5c5, -20px -20px 60px #ffffff';
+                      }}
                     />
                     <p className="text-xs text-muted-foreground mt-2">
                       💡 This amount will be distributed proportionally to all investors based on their token ownership

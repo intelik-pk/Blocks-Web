@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from 'react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, 
   Building2, 
@@ -30,6 +30,7 @@ import Badge from '../../components/ui/Badge';
 import ThemeToggle from '../../components/ThemeToggle';
 import AdminSidebar from '../../components/admin/AdminSidebar';
 import SafeAdminNotificationIcon from '../../components/admin/SafeAdminNotificationIcon';
+import NotificationPopover from '../../components/notifications/NotificationPopover';
 import MetricCards from '../../components/admin/MetricCards';
 import InvestmentChart from '../../components/admin/InvestmentChart';
 import { adminAPI, rewardsAPI } from '../../services/api';
@@ -54,8 +55,11 @@ const AdminDashboard = () => {
     to: null
   });
   const [showTopSellers, setShowTopSellers] = useState(true); // Flip state for tokens chart
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationIconRef = useRef(null);
   const { adminUser, isAuthenticated, logout } = useAdminAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -63,6 +67,15 @@ const AdminDashboard = () => {
       navigate('/admin/login');
     }
   }, [isAuthenticated, navigate]);
+
+  // Handle URL parameters for tab navigation
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && ['overview', 'properties', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
 
   // Fetch dashboard statistics
   const { data: dashboardData, isLoading: dashboardLoading, error: dashboardError } = useQuery(
@@ -937,7 +950,7 @@ const AdminDashboard = () => {
               <div className="text-[9px] text-muted-foreground font-medium">Tokens Sold</div>
             </div>
             <div className="text-lg font-bold text-card-foreground">
-              {(totalTokensInCirculation / 1000000).toFixed(2)}M
+              {(totalTokensInCirculation).toFixed(2)}
             </div>
             <div className="text-[8px] text-muted-foreground mt-0.5">In circulation</div>
           </Card>
@@ -1333,7 +1346,9 @@ const AdminDashboard = () => {
       case 'kyc':
         return <KYCManagement />;
       case 'notifications':
-        return <NotificationsManagement />;
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewParam = urlParams.get('view');
+        return <NotificationsManagement activeView={viewParam === 'all' ? 'view' : 'send'} />;
       case 'settings':
         return <AdminSettings />;
       default:
@@ -1409,7 +1424,22 @@ const AdminDashboard = () => {
           </div>
 
           <ThemeToggle />
-          <SafeAdminNotificationIcon />
+          <div ref={notificationIconRef} className="relative">
+            <SafeAdminNotificationIcon 
+              onToggle={() => {
+                console.log('🔔 Toggling notifications, current state:', showNotifications);
+                setShowNotifications(!showNotifications);
+              }} 
+            />
+            <NotificationPopover
+              isOpen={showNotifications}
+              onClose={() => {
+                console.log('🔔 Closing notifications popover');
+                setShowNotifications(false);
+              }}
+              anchorRef={notificationIconRef}
+            />
+          </div>
 
           <Button
             variant="outline"

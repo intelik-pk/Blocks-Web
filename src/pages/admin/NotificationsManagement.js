@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { 
   Bell, 
@@ -11,17 +11,19 @@ import {
   X,
   CheckCircle,
   AlertCircle,
-  Search
+  Search,
+  Clock
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
 import { adminAPI } from '../../services/api';
+import { API_BASE_URL } from '../../config/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import toast from 'react-hot-toast';
 
-const NotificationsManagement = () => {
+const NotificationsManagement = ({ activeView = 'send' }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   
@@ -37,6 +39,14 @@ const NotificationsManagement = () => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [showUserSelector, setShowUserSelector] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState(activeView);
+  const [blocksAdminUserId, setBlocksAdminUserId] = useState(null);
+  const [notificationSearchQuery, setNotificationSearchQuery] = useState('');
+
+  // Sync activeTab with activeView prop
+  useEffect(() => {
+    setActiveTab(activeView);
+  }, [activeView]);
 
   // Fetch all users
   const { data: usersData, isLoading: usersLoading } = useQuery(
@@ -248,6 +258,135 @@ const NotificationsManagement = () => {
     }
   };
 
+  // Get Blocks admin user ID
+  useEffect(() => {
+    const fetchBlocksAdminId = async () => {
+      try {
+        const usersResponse = await adminAPI.getUsers({ limit: 1, role: 'admin' });
+        const blocksAdminUser = usersResponse?.data?.users?.[0] || usersResponse?.data?.data?.users?.[0];
+        if (blocksAdminUser?.id) {
+          setBlocksAdminUserId(blocksAdminUser.id);
+        }
+      } catch (error) {
+        console.error('Failed to fetch Blocks admin user ID:', error);
+      }
+    };
+    if (isAuthenticated) {
+      fetchBlocksAdminId();
+    }
+  }, [isAuthenticated]);
+
+  // Fetch notifications for view tab
+  const { data: notificationsData, isLoading: notificationsLoading, refetch: refetchNotifications } = useQuery(
+    ['admin-notifications-view'],
+    async () => {
+      try {
+        const response = await adminAPI.getBlocksAdminNotifications();
+        const data = response?.data || response;
+        return data;
+      } catch (error) {
+        console.error('Error fetching Blocks admin notifications:', error);
+        return { notifications: [] };
+      }
+    },
+    {
+      enabled: isAuthenticated && activeTab === 'view',
+      refetchInterval: 30000,
+    }
+  );
+
+  // Parse notifications
+  const notifications = useMemo(() => {
+    let data = null;
+    if (notificationsData?.notifications) {
+      data = notificationsData.notifications;
+    } else if (notificationsData?.data?.notifications) {
+      data = notificationsData.data.notifications;
+    } else if (notificationsData?.data && Array.isArray(notificationsData.data)) {
+      data = notificationsData.data;
+    } else if (Array.isArray(notificationsData)) {
+      data = notificationsData;
+    }
+    return Array.isArray(data) ? data : [];
+  }, [notificationsData]);
+
+  // Filter notifications
+  const filteredNotifications = useMemo(() => {
+    if (!Array.isArray(notifications)) return [];
+    if (!notificationSearchQuery) return notifications;
+    const query = notificationSearchQuery.toLowerCase();
+    return notifications.filter(n => 
+      n?.title?.toLowerCase().includes(query) || 
+      n?.message?.toLowerCase().includes(query)
+    );
+  }, [notifications, notificationSearchQuery]);
+
+  const unreadNotifications = useMemo(() => {
+    return filteredNotifications.filter(n => !n.read || n.read === false);
+  }, [filteredNotifications]);
+
+  const readNotifications = useMemo(() => {
+    return filteredNotifications.filter(n => n.read === true);
+  }, [filteredNotifications]);
+
+  // Mark notification as read
+  const markAsReadMutation = useMutation(
+    async (notificationId) => {
+      if (!blocksAdminUserId) {
+        throw new Error('Blocks admin user ID not available');
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/notifications/mark-read/${notificationId}/user/${blocksAdminUserId}`,
+        { method: 'PATCH' }
+      );
+      return response.json();
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['admin-notifications-view']);
+        queryClient.invalidateQueries(['admin-notifications']);
+      },
+    }
+  );
+
+  // Mark all as read
+  const markAllAsReadMutation = useMutation(
+    async () => {
+      if (!blocksAdminUserId) {
+        throw new Error('Blocks admin user ID not available');
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/notifications/mark-all-read/user/${blocksAdminUserId}`,
+        { method: 'PATCH' }
+      );
+      return response.json();
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['admin-notifications-view']);
+        queryClient.invalidateQueries(['admin-notifications']);
+        toast.success('All notifications marked as read');
+      },
+    }
+  );
+
+  const formatTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffMinutes = Math.floor(diffTime / (1000 * 60));
+    const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   if (!isAuthenticated) {
     return (
       <Card className="p-8 text-center">
@@ -262,12 +401,47 @@ const NotificationsManagement = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Send Notifications</h1>
-          <p className="text-gray-600 mt-1">Send custom notifications to users</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Notifications</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Manage and send notifications</p>
         </div>
       </div>
 
-      <Card className="p-6">
+      {/* Tabs */}
+      <div className="border-b border-gray-200 dark:border-gray-700">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => setActiveTab('send')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'send'
+                ? 'border-black text-black dark:text-white'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            <Send className="w-4 h-4 inline mr-2" />
+            Send Notification
+          </button>
+          <button
+            onClick={() => setActiveTab('view')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'view'
+                ? 'border-black text-black dark:text-white'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            <Bell className="w-4 h-4 inline mr-2" />
+            View Notifications
+            {unreadNotifications.length > 0 && (
+              <Badge variant="destructive" className="ml-2">
+                {unreadNotifications.length}
+              </Badge>
+            )}
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'send' ? (
+        <Card className="p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* User Selection */}
           <div>
@@ -518,6 +692,125 @@ const NotificationsManagement = () => {
           </div>
         </form>
       </Card>
+      ) : (
+        <div className="space-y-6">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search notifications..."
+              value={notificationSearchQuery}
+              onChange={(e) => setNotificationSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          {/* Unread Notifications */}
+          {unreadNotifications.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-foreground">
+                  Recent ({unreadNotifications.length})
+                </h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => markAllAsReadMutation.mutate()}
+                  disabled={markAllAsReadMutation.isLoading}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  {markAllAsReadMutation.isLoading ? 'Marking...' : 'Mark All as Read'}
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {unreadNotifications.map((notification) => (
+                  <Card
+                    key={notification.id}
+                    className={`p-4 cursor-pointer hover:bg-accent transition-colors border-l-4 border-l-primary`}
+                    onClick={() => {
+                      if (!notification.read) {
+                        markAsReadMutation.mutate(notification.id);
+                      }
+                    }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-foreground">{notification.title}</h3>
+                          <span className="w-2 h-2 bg-primary rounded-full"></span>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">{notification.message}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Clock className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            {formatTime(notification.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All Notifications */}
+          <div>
+            <h2 className="text-xl font-semibold text-foreground mb-4">
+              All Notifications ({filteredNotifications.length})
+            </h2>
+            {notificationsLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                <p className="text-muted-foreground mt-2">Loading notifications...</p>
+              </div>
+            ) : filteredNotifications.length === 0 ? (
+              <Card className="p-8 text-center">
+                <Bell className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <p className="text-muted-foreground">
+                  {notificationSearchQuery ? 'No notifications found matching your search' : 'No notifications found'}
+                </p>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filteredNotifications.map((notification) => {
+                  const isUnread = !notification.read || notification.read === false;
+                  return (
+                    <Card
+                      key={notification.id}
+                      className={`p-4 cursor-pointer hover:bg-accent transition-colors ${
+                        isUnread ? 'border-l-4 border-l-primary' : ''
+                      }`}
+                      onClick={() => {
+                        if (isUnread) {
+                          markAsReadMutation.mutate(notification.id);
+                        }
+                      }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-foreground">{notification.title}</h3>
+                            {isUnread && <span className="w-2 h-2 bg-primary rounded-full"></span>}
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">{notification.message}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Clock className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">
+                              {formatTime(notification.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

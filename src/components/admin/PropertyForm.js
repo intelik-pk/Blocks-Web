@@ -2017,7 +2017,14 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-xl md:text-2xl font-bold text-card-foreground tracking-tight">
-                {property ? 'Edit Property' : 'Add New Property'}
+                {property ? (
+                  <>
+                    Editing{' '}
+                    <span className="font-bold text-blue-800">{property.title}</span>
+                  </>
+                ) : (
+                  'Add New Property'
+                )}
               </h3>
               <p className="text-xs md:text-sm text-muted-foreground mt-1">
                 {property ? 'Update property information' : 'Create a new property listing'}

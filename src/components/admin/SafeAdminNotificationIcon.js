@@ -2,9 +2,9 @@ import React from 'react';
 import AdminNotificationIcon from './AdminNotificationIcon';
 
 // Safe wrapper to prevent crashes
-const SafeAdminNotificationIcon = () => {
+const SafeAdminNotificationIcon = ({ onToggle }) => {
   try {
-    return <AdminNotificationIcon />;
+    return <AdminNotificationIcon onToggle={onToggle} />;
   } catch (error) {
     console.error('AdminNotificationIcon error:', error);
     return null;
