@@ -53,7 +53,7 @@ function App() {
               <div className="App">
               <Routes>
                 {/* Public Routes */}
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<Navigate to="/admin" replace />} />
                 <Route path="/properties" element={<Properties />} />
                 <Route path="/properties/:id" element={<PropertyDetail />} />
                 <Route path="/login" element={<Login />} />
@@ -109,7 +109,7 @@ function App() {
                   </OrganizationAuthProvider>
                 } />
                 
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/admin" replace />} />
               </Routes>
               </div>
             </Router>
