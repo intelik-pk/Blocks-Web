@@ -15,6 +15,9 @@ import Portfolio from './pages/user/Portfolio';
 import Profile from './pages/user/Profile';
 import Wallet from './pages/user/Wallet';
 import Notifications from './pages/user/Notifications';
+import KYCStatus from './pages/user/KYCStatus';
+import KYCUpload from './pages/user/KYCUpload';
+import KYCDetails from './pages/user/KYCDetails';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminPropertyDetail from './pages/admin/PropertyDetail';
@@ -62,6 +65,9 @@ function App() {
                 <Route path="/wallet" element={<Wallet />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/notifications" element={<Notifications />} />
+                <Route path="/kyc/status" element={<KYCStatus />} />
+                <Route path="/kyc/upload" element={<KYCUpload />} />
+                <Route path="/kyc/details" element={<KYCDetails />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                 <Route path="/delete-account" element={<DeleteAccount />} />
                 
