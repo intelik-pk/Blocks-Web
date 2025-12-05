@@ -46,7 +46,7 @@ const getCertificateUrl = (certificatePath) => {
   return `${baseUrl}${cleanPath}`;
 };
 
-const UsersManagement = () => {
+const UsersManagement = ({ initialFilters, onFiltersSet }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   
@@ -356,6 +356,7 @@ const UsersManagement = () => {
       </div>
     );
   }
+
 
   return (
     <div className="space-y-6">

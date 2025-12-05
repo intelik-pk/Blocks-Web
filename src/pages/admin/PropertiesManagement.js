@@ -52,6 +52,17 @@ const PropertiesManagement = () => {
     sort_by: 'created_at',
     sort_order: 'desc'
   });
+
+  // Apply initial filters when component mounts or initialFilters change
+  useEffect(() => {
+    if (initialFilters && Object.keys(initialFilters).length > 0) {
+      setFilters(prev => ({ ...prev, ...initialFilters }));
+      if (onFiltersSet) {
+        // Clear initial filters after applying
+        setTimeout(() => onFiltersSet(), 100);
+      }
+    }
+  }, [initialFilters, onFiltersSet]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showModal, setShowModal] = useState(false);
