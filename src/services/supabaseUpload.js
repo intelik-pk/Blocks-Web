@@ -278,6 +278,100 @@ export const supabaseUpload = {
       console.error('Supabase delete error:', error);
       throw error;
     }
+  },
+
+  /**
+   * Upload KYC document to Supabase Storage
+   * @param {File} file - The KYC document file to upload (image)
+   * @param {string} userId - User ID for folder organization
+   * @param {string} documentType - Type of document: 'front', 'back', or 'selfie'
+   * @returns {Promise<{url: string, path: string, success: boolean}>}
+   */
+  uploadKycDocument: async (file, userId, documentType = 'front') => {
+    try {
+      console.log('📤 Starting KYC document upload to Supabase...', { 
+        file: file.name, 
+        userId, 
+        documentType 
+      });
+      
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+      if (!allowedTypes.includes(file.type)) {
+        throw new Error('Only JPEG and PNG images are allowed.');
+      }
+      
+      // Validate file size (max 5MB)
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (file.size > maxSize) {
+        throw new Error('File size exceeds 5MB limit. Please select a smaller image.');
+      }
+      
+      // Generate unique filename: {userId}/{documentType}-{timestamp}-{randomId}.{ext}
+      const fileExt = file.name.split('.').pop().toLowerCase();
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 8);
+      const fileName = `${documentType}-${timestamp}-${randomId}.${fileExt}`;
+      const filePath = `${userId}/${fileName}`;
+      
+      console.log('📁 KYC document file path:', filePath);
+
+      // Upload file to Supabase Storage
+      // NOTE: Bucket name is case-sensitive! Must match exactly: 'kyc-documents'
+      console.log('📦 Attempting KYC document upload to bucket: kyc-documents');
+      
+      const { data, error } = await supabase.storage
+        .from('kyc-documents') // KYC documents bucket
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('❌ Supabase KYC document upload error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          statusCode: error.statusCode,
+          error: error.error,
+          name: error.name
+        });
+        
+        // Provide more helpful error messages
+        if (error.message?.includes('Bucket not found') || error.message?.includes('does not exist')) {
+          throw new Error('Storage bucket "kyc-documents" not found. Please create it in Supabase dashboard.');
+        } else if (error.message?.includes('new row violates row-level security') || 
+                   error.message?.includes('row-level security') ||
+                   error.message?.includes('policy') ||
+                   error.statusCode === 403) {
+          const detailedError = `❌ Supabase Storage Policy Error\n\nThe "kyc-documents" bucket needs Row Level Security (RLS) policies configured.\n\n📋 Quick Fix:\n1. Go to Supabase Dashboard > Storage > kyc-documents\n2. Click "Policies" tab\n3. Create new policy:\n   - Name: "Allow anon uploads"\n   - Operation: INSERT\n   - Role: anon\n   - USING: (bucket_id = 'kyc-documents')\n   - WITH CHECK: (bucket_id = 'kyc-documents')\n\n📄 See SUPABASE_KYC_SETUP.md for detailed instructions.\n\nAlternatively, you can make the bucket public (less secure).`;
+          console.error('🔴 Supabase RLS Policy Error:', detailedError);
+          throw new Error(detailedError);
+        } else if (error.message?.includes('JWT') || error.message?.includes('auth')) {
+          throw new Error('Authentication error. Please check your Supabase API keys.');
+        }
+        
+        throw new Error(error.message || 'KYC document upload failed. Check browser console for details.');
+      }
+
+      console.log('✅ KYC document upload successful:', data);
+
+      // Get public URL (if bucket is public) or signed URL (if private)
+      const { data: urlData } = supabase.storage
+        .from('kyc-documents')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+      console.log('🔗 KYC document public URL:', publicUrl);
+
+      return {
+        url: publicUrl,
+        path: filePath,
+        success: true
+      };
+    } catch (error) {
+      console.error('❌ Supabase KYC document upload error:', error);
+      throw error;
+    }
   }
 };
 

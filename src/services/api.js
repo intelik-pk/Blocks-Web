@@ -425,6 +425,217 @@ export const kycAPI = {
   detectCardType: (cardNumber) => api.post('/kyc/detect-card-type', { cardNumber }), // POST /kyc/detect-card-type (if exists)
 };
 
+// Mobile KYC API (User End - JWT authenticated)
+// Uses existing endpoints and transforms data to match mobile API format
+export const mobileKycAPI = {
+  // Get KYC status (returns status and document upload status)
+  // Uses existing endpoint: GET /kyc/user/:userId
+  getStatus: async (userId) => {
+    if (!userId) {
+      return { 
+        data: { 
+          status: 'not_submitted',
+          hasDocuments: { front: false, back: false, selfie: false }
+        } 
+      };
+    }
+    
+    try {
+      const response = await kycAPI.getStatus(userId);
+      const kyc = response.data?.data || response.data;
+      
+      // Transform to match mobile API format
+      return {
+        data: {
+          id: kyc?.id,
+          type: kyc?.type,
+          status: kyc?.status || 'not_submitted',
+          submittedAt: kyc?.submittedAt || kyc?.createdAt,
+          reviewedAt: kyc?.reviewedAt,
+          rejectionReason: kyc?.rejectionReason,
+          hasDocuments: {
+            front: !!kyc?.documentFrontUrl,
+            back: !!kyc?.documentBackUrl,
+            selfie: !!kyc?.selfieUrl
+          }
+        }
+      };
+    } catch (error) {
+      // If 404, return not_submitted status
+      if (error.response?.status === 404) {
+        return {
+          data: {
+            status: 'not_submitted',
+            hasDocuments: { front: false, back: false, selfie: false }
+          }
+        };
+      }
+      throw error;
+    }
+  },
+  
+  // Upload document - Upload directly to Supabase since backend endpoint may not exist
+  // Returns URL that can be used in submit
+  uploadDocument: async (fileData, fileName, mimeType, documentType) => {
+    try {
+      // Try mobile endpoint first
+      return await api.post('/api/mobile/kyc/upload-document', {
+        fileData,
+        fileName,
+        mimeType,
+        documentType
+      });
+    } catch (error) {
+      // Fallback: Upload directly to Supabase
+      if (error.response?.status === 404 || error.response?.status === 500) {
+        // Convert base64 to File
+        const byteCharacters = atob(fileData);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: mimeType });
+        const file = new File([blob], fileName, { type: mimeType });
+        
+        // Get userId from token or pass it as parameter
+        // For now, we'll need to get it from the calling component
+        // This is a limitation - we'll handle it in the component
+        throw new Error('User ID required for Supabase upload. Please use uploadDocumentWithUserId instead.');
+      }
+      throw error;
+    }
+  },
+  
+  // Upload document with userId (for Supabase fallback)
+  uploadDocumentWithUserId: async (fileData, fileName, mimeType, documentType, userId) => {
+    try {
+      // Try mobile endpoint first
+      return await api.post('/api/mobile/kyc/upload-document', {
+        fileData,
+        fileName,
+        mimeType,
+        documentType
+      });
+    } catch (error) {
+      // Fallback: Upload directly to Supabase
+      if (error.response?.status === 404 || error.response?.status === 500) {
+        // Convert base64 to File
+        const byteCharacters = atob(fileData);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: mimeType });
+        const file = new File([blob], fileName, { type: mimeType });
+        
+        if (!userId) throw new Error('User ID is required');
+        
+        // Upload to Supabase
+        const { supabaseUpload } = await import('./supabaseUpload');
+        const result = await supabaseUpload.uploadKycDocument(file, userId, documentType);
+        
+        return { data: result };
+      }
+      throw error;
+    }
+  },
+  
+  // Submit KYC verification - uses existing endpoint
+  submit: async (kycData, userId) => {
+    // If no userId provided, try to extract from kycData
+    const finalUserId = userId || kycData.userId;
+    
+    if (!finalUserId) {
+      throw new Error('User ID is required to submit KYC');
+    }
+
+    // Transform data format for backend - include userId
+    const submitData = {
+      userId: finalUserId,
+      type: kycData.type,
+      documentFrontUrl: kycData.documentFrontUrl,
+      documentBackUrl: kycData.documentBackUrl || null,
+      selfieUrl: kycData.selfieUrl || null,
+      metadata: kycData.metadata || {}
+    };
+
+    try {
+      // Try mobile endpoint first
+      return await api.post('/api/mobile/kyc/submit', submitData);
+    } catch (error) {
+      // Fallback to existing endpoint
+      if (error.response?.status === 404 || error.response?.status === 500) {
+        try {
+          // Try kycAPI.submit
+          return await kycAPI.submit(submitData);
+        } catch (submitError) {
+          // If kycAPI.submit also fails, try usersAPI.submitKYC
+          if (submitError.response?.status === 404) {
+            try {
+              return await usersAPI.submitKYC(submitData);
+            } catch (usersError) {
+              // All endpoints failed - provide helpful error
+              console.error('All KYC submit endpoints failed:', {
+                mobile: error.response?.status,
+                kyc: submitError.response?.status,
+                users: usersError.response?.status
+              });
+              throw new Error('KYC submission endpoint not available. The backend may not have this endpoint implemented yet.');
+            }
+          }
+          throw submitError;
+        }
+      }
+      throw error;
+    }
+  },
+  
+  // Get full KYC details - uses existing endpoint
+  getKyc: async (userId) => {
+    if (!userId) {
+      return { data: null };
+    }
+    
+    try {
+      // Try mobile endpoint first
+      return await api.get('/api/mobile/kyc');
+    } catch (error) {
+      // Fallback to existing endpoint
+      if (error.response?.status === 404 || error.response?.status === 500) {
+        const response = await kycAPI.getStatus(userId);
+        const kyc = response.data?.data || response.data;
+        
+        if (!kyc) {
+          return { data: null };
+        }
+        
+        // Transform to match mobile API format
+        return {
+          data: {
+            id: kyc.id,
+            type: kyc.type,
+            status: kyc.status,
+            documents: {
+              front: kyc.documentFrontUrl,
+              back: kyc.documentBackUrl,
+              selfie: kyc.selfieUrl
+            },
+            reviewer: kyc.reviewer,
+            rejectionReason: kyc.rejectionReason,
+            submittedAt: kyc.submittedAt || kyc.createdAt,
+            reviewedAt: kyc.reviewedAt,
+            createdAt: kyc.createdAt,
+            updatedAt: kyc.updatedAt
+          }
+        };
+      }
+      throw error;
+    }
+  },
+};
+
 // Calculator API (User End)
 export const calculatorAPI = {
   calculateROI: (data) => api.post('/calculator/roi', data), // POST /api/calculator/roi

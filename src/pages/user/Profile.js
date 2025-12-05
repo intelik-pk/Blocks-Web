@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useForm } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
 import { 
   User, 
   Mail, 
@@ -16,11 +17,12 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { useUser } from '../../contexts/UserContext';
-import { usersAPI } from '../../services/api';
+import { usersAPI, mobileKycAPI } from '../../services/api';
 import { formatCurrency } from '../../utils/formatLocation';
 
 const Profile = () => {
   const { currentUser } = useUser();
+  const navigate = useNavigate();
   const userId = currentUser?.id;
   const [isEditing, setIsEditing] = useState(false);
   const queryClient = useQueryClient();
@@ -29,6 +31,7 @@ const Profile = () => {
   useEffect(() => {
     queryClient.invalidateQueries(['profile', userId]);
     queryClient.invalidateQueries(['wallet', userId]);
+    queryClient.invalidateQueries(['kyc-status', userId]);
   }, [userId, queryClient]);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
@@ -45,6 +48,17 @@ const Profile = () => {
     ['wallet', userId],
     () => usersAPI.getWalletById(userId),
     { enabled: !!userId }
+  );
+
+  // Fetch KYC status
+  const { data: kycStatusData } = useQuery(
+    ['kyc-status', userId],
+    () => mobileKycAPI.getStatus(userId),
+    { 
+      enabled: !!userId,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Update profile mutation
@@ -92,11 +106,36 @@ const Profile = () => {
                       profile.member_since ||
                       null;
   
-  // Extract KYC status
-  const kycStatus = profile.kycStatus || 
-                    profile.kyc_status || 
-                    profile.kyc?.status ||
-                    null;
+  // Extract KYC status - prioritize API response, fallback to profile data
+  const kycStatusFromAPI = kycStatusData?.data?.status;
+  const hasDocuments = kycStatusData?.data?.hasDocuments;
+  
+  // Check if user has actually submitted documents
+  const hasSubmittedDocuments = hasDocuments && (
+    hasDocuments.front || hasDocuments.back || hasDocuments.selfie
+  );
+  
+  // Determine final status
+  let kycStatus = kycStatusFromAPI || 
+                  profile.kycStatus || 
+                  profile.kyc_status || 
+                  profile.kyc?.status ||
+                  null;
+  
+  // If no status from API and no documents, it's not submitted
+  if (!kycStatus && !hasSubmittedDocuments) {
+    kycStatus = 'not_submitted';
+  }
+  
+  // If status is "not_submitted" but user has submitted documents, they're pending review
+  if (kycStatus === 'not_submitted' && hasSubmittedDocuments) {
+    kycStatus = 'pending';
+  }
+  
+  // Default to not_submitted if still null
+  if (!kycStatus) {
+    kycStatus = 'not_submitted';
+  }
 
   // Extract wallet fields - Backend returns USDT values (matching mobile app)
   // Backend wallet returns: balanceUSDT, totalDepositedUSDT, totalWithdrawnUSDT
@@ -319,9 +358,19 @@ const Profile = () => {
                         ? 'bg-green-100 text-green-800' 
                         : kycStatus === 'pending'
                         ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
+                        : kycStatus === 'rejected'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-800'
                     }`}>
-                      {kycStatus ? kycStatus.charAt(0).toUpperCase() + kycStatus.slice(1) : 'Not submitted'}
+                      {kycStatus === 'not_submitted' 
+                        ? 'Not submitted'
+                        : kycStatus === 'pending'
+                        ? 'Pending Review'
+                        : kycStatus === 'verified'
+                        ? 'Verified'
+                        : kycStatus === 'rejected'
+                        ? 'Rejected'
+                        : kycStatus.charAt(0).toUpperCase() + kycStatus.slice(1).replace('_', ' ')}
                     </span>
                   </div>
                   
@@ -366,7 +415,11 @@ const Profile = () => {
               <Card className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
                 <div className="space-y-3">
-                  <Button className="w-full" variant="outline">
+                  <Button 
+                    className="w-full" 
+                    variant="outline"
+                    onClick={() => navigate('/kyc/status')}
+                  >
                     <Shield className="h-4 w-4 mr-2" />
                     Complete KYC
                   </Button>
