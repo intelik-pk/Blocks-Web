@@ -41,7 +41,7 @@ import InputTwo from '../../components/ui/InputTwo';
 
 // No separate filter button component needed anymore
 
-const PropertiesManagement = () => {
+const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   const toast = useToast();
   const { isAuthenticated } = useAdminAuth();
   

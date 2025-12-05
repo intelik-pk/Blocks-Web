@@ -58,9 +58,12 @@ const AdminDashboard = () => {
   const [showTopSellers, setShowTopSellers] = useState(true); // Flip state for tokens chart
   const [activityFilter, setActivityFilter] = useState('all'); // 'all', 'admin', 'org_admin', 'user'
   const [tabFilters, setTabFilters] = useState({}); // Store filters to apply when switching tabs
+  const [showNotifications, setShowNotifications] = useState(false); // Notification popover state
+  const notificationIconRef = useRef(null); // Notification icon ref
   const { adminUser, isAuthenticated, logout } = useAdminAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  
 
   // Redirect to login if not authenticated
   useEffect(() => {
