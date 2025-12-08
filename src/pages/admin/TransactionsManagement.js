@@ -16,6 +16,7 @@ import Loader from '../../components/Loder';
 import TransactionTabs from '../../components/transactions/TransactionTabs';
 import TransactionFilters from '../../components/transactions/TransactionFilters';
 import TransactionTable from '../../components/transactions/TransactionTable';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 
 const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
   const { isAuthenticated } = useAdminAuth();
@@ -412,17 +413,6 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     // No need to reset currentPage since we're using frontend filtering
   };
 
-  const formatPrice = (amount, currency = 'USD') => {
-    const num = parseFloat(amount);
-    if (num >= 1000000000) {
-      return `${currency} ${(num / 1000000000).toFixed(1)}B`;
-    } else if (num >= 1000000) {
-      return `${currency} ${(num / 1000000).toFixed(1)}M`;
-    } else if (num >= 1000) {
-      return `${currency} ${(num / 1000).toFixed(0)}K`;
-    }
-    return `${currency} ${num.toFixed(0)}`;
-  };
 
   if (!isAuthenticated) {
     return (
@@ -481,9 +471,12 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Total Deposits</p>
-              <p className="text-2xl font-bold text-card-foreground">
-                {formatPrice(summary.totalDeposits)}
-              </p>
+                    <p 
+                      className="text-2xl font-bold text-card-foreground cursor-help"
+                      title={formatFullPrice(summary.totalDeposits, '$')}
+                    >
+                      {formatExactPrice(summary.totalDeposits, '$')}
+                    </p>
             </div>
           </div>
         </Card>
@@ -495,9 +488,12 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Total Withdrawals</p>
-              <p className="text-2xl font-bold text-card-foreground">
-                {formatPrice(summary.totalWithdrawals)}
-              </p>
+                    <p 
+                      className="text-2xl font-bold text-card-foreground cursor-help"
+                      title={formatFullPrice(summary.totalWithdrawals, '$')}
+                    >
+                      {formatExactPrice(summary.totalWithdrawals, '$')}
+                    </p>
             </div>
           </div>
         </Card>
@@ -523,9 +519,12 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Net Volume</p>
-              <p className="text-2xl font-bold text-card-foreground">
-                {formatPrice(summary.netVolume)}
-              </p>
+                    <p 
+                      className="text-2xl font-bold text-card-foreground cursor-help"
+                      title={formatFullPrice(summary.netVolume, '$')}
+                    >
+                      {formatExactPrice(summary.netVolume, '$')}
+                    </p>
             </div>
           </div>
         </Card>

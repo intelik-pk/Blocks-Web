@@ -33,6 +33,7 @@ import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { API_BASE_URL } from '../../config/api';
 import Loader from '../../components/Loder';
 import { cn } from '../../utils/cn';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 import InputTwo from '../../components/ui/InputTwo';
 
 // Helper function to get full certificate URL from path
@@ -832,8 +833,11 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                           </div>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                            {formatPrice(userFinancialData?.walletBalance || 0)}
+                          <p 
+                            className="text-lg font-bold text-gray-900 dark:text-gray-100 cursor-help"
+                            title={formatFullPrice(userFinancialData?.walletBalance || 0, '$')}
+                          >
+                            {formatExactPrice(userFinancialData?.walletBalance || 0, '$')}
                           </p>
                           <TrendingUp className="w-4 h-4 text-green-500" />
                         </div>
@@ -848,8 +852,11 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                           </div>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                            {formatPrice(userFinancialData?.totalInvestments || 0)}
+                          <p 
+                            className="text-lg font-bold text-gray-900 dark:text-gray-100 cursor-help"
+                            title={formatFullPrice(userFinancialData?.totalInvestments || 0, '$')}
+                          >
+                            {formatExactPrice(userFinancialData?.totalInvestments || 0, '$')}
                           </p>
                           <TrendingUp className="w-4 h-4 text-green-500" />
                         </div>
@@ -864,8 +871,11 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                           </div>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                            {formatPrice(userFinancialData?.totalReturns || 0)}
+                          <p 
+                            className="text-lg font-bold text-gray-900 dark:text-gray-100 cursor-help"
+                            title={formatFullPrice(userFinancialData?.totalReturns || 0, '$')}
+                          >
+                            {formatExactPrice(userFinancialData?.totalReturns || 0, '$')}
                           </p>
                         </div>
                       </div>
@@ -898,8 +908,11 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                           </div>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                            {formatPrice(userFinancialData?.totalCurrentValue || 0)}
+                          <p 
+                            className="text-lg font-bold text-gray-900 dark:text-gray-100 cursor-help"
+                            title={formatFullPrice(userFinancialData?.totalCurrentValue || 0, '$')}
+                          >
+                            {formatExactPrice(userFinancialData?.totalCurrentValue || 0, '$')}
                           </p>
                           <TrendingUp className="w-4 h-4 text-green-500" />
                         </div>
@@ -914,11 +927,14 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                           </div>
                         </div>
                         <div className="flex items-baseline gap-1">
-                          <p className={cn(
-                            "text-lg font-bold",
-                            (userFinancialData?.totalNetROI || 0) >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-red-600'
-                          )}>
-                            {formatPrice(userFinancialData?.totalNetROI || 0)}
+                          <p 
+                            className={cn(
+                              "text-lg font-bold cursor-help",
+                              (userFinancialData?.totalNetROI || 0) >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-red-600'
+                            )}
+                            title={formatFullPrice(userFinancialData?.totalNetROI || 0, '$')}
+                          >
+                            {formatExactPrice(userFinancialData?.totalNetROI || 0, '$')}
                           </p>
                           <span className="text-xs text-red-500">↘</span>
                         </div>
@@ -1086,9 +1102,23 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">{formatPrice(amount)}</td>
+                                <td className="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">
+                                  <span 
+                                    className="cursor-help"
+                                    title={formatFullPrice(amount, '$')}
+                                  >
+                                    {formatExactPrice(amount, '$')}
+                                  </span>
+                                </td>
                                 <td className="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">{tokens.toLocaleString()}</td>
-                                <td className="px-3 py-2 text-xs text-green-600">{formatPrice(returns)}</td>
+                                <td className="px-3 py-2 text-xs text-green-600">
+                                  <span 
+                                    className="cursor-help"
+                                    title={formatFullPrice(returns, '$')}
+                                  >
+                                    {formatExactPrice(returns, '$')}
+                                  </span>
+                                </td>
                                 <td className="px-3 py-2">
                                   <span className={cn(
                                     "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium",
@@ -1141,7 +1171,13 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                             </div>
                             <div className="text-right">
                               <p className={`text-sm font-semibold ${isDeposit ? 'text-green-600' : 'text-red-600'}`}>
-                                {isDeposit ? '+' : '-'}{formatPrice(amount)}
+                                {isDeposit ? '+' : '-'}
+                                <span 
+                                  className="cursor-help"
+                                  title={formatFullPrice(amount, '$')}
+                                >
+                                  {formatExactPrice(amount, '$')}
+                                </span>
                               </p>
                               <Badge 
                                 variant={transaction.status === 'completed' ? 'success' : transaction.status === 'pending' ? 'warning' : 'default'}

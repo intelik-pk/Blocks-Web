@@ -29,6 +29,7 @@ import Badge from '../../components/ui/Badge';
 import { adminAPI, propertiesAPI, investmentsAPI, walletTransactionsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 
 const PropertyDetail = () => {
   const { propertyId } = useParams();
@@ -162,12 +163,21 @@ const PropertyDetail = () => {
     { id: 'transactions', label: 'Transactions', icon: Activity }
   ];
 
-  const StatCard = ({ title, value, icon: Icon, color = 'blue', change, changeType = 'positive' }) => (
+  const StatCard = ({ title, value, icon: Icon, color = 'blue', change, changeType = 'positive', isAmount = false }) => (
     <Card className="p-6">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold text-card-foreground mt-1">{value}</p>
+          {isAmount ? (
+            <p 
+              className="text-2xl font-bold text-card-foreground mt-1 cursor-help"
+              title={formatFullPrice(value, '$')}
+            >
+              {formatExactPrice(value, '$')}
+            </p>
+          ) : (
+            <p className="text-2xl font-bold text-card-foreground mt-1">{value}</p>
+          )}
           {change && (
             <p className={`text-sm mt-1 ${changeType === 'positive' ? 'text-green-600' : 'text-red-600'}`}>
               {changeType === 'positive' ? '+' : ''}{change}
@@ -187,9 +197,10 @@ const PropertyDetail = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Total Investment"
-          value={formatPrice(metrics.totalInvestment || 0)}
+          value={metrics.totalInvestment || 0}
           icon={DollarSign}
           color="green"
+          isAmount={true}
         />
         <StatCard
           title="Total Buyers"
@@ -215,9 +226,10 @@ const PropertyDetail = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard
           title="Price Per Token"
-          value={formatPrice(metrics.pricePerToken || 0)}
+          value={metrics.pricePerToken || 0}
           icon={Award}
           color="indigo"
+          isAmount={true}
         />
         <StatCard
           title="Total Tokens"
@@ -261,11 +273,21 @@ const PropertyDetail = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Total Value</label>
-            <p className="text-sm text-card-foreground">{formatPrice(property.totalValueUSDT || property.total_value_usdt || property.pricing_total_value || 0, 'USD')}</p>
+            <p 
+              className="text-sm text-card-foreground cursor-help"
+              title={formatFullPrice(property.totalValueUSDT || property.total_value_usdt || property.pricing_total_value || 0, '$')}
+            >
+              {formatExactPrice(property.totalValueUSDT || property.total_value_usdt || property.pricing_total_value || 0, '$')}
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Price Per Token</label>
-            <p className="text-sm text-card-foreground">{formatPrice(property.pricePerTokenUSDT || property.price_per_token_usdt || property.pricePerToken || 0, 'USD')}</p>
+            <p 
+              className="text-sm text-card-foreground cursor-help"
+              title={formatFullPrice(property.pricePerTokenUSDT || property.price_per_token_usdt || property.pricePerToken || 0, '$')}
+            >
+              {formatExactPrice(property.pricePerTokenUSDT || property.price_per_token_usdt || property.pricePerToken || 0, '$')}
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Total Tokens</label>
@@ -339,7 +361,12 @@ const PropertyDetail = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-card-foreground">
-                        {formatPrice(amount)}
+                        <span 
+                          className="cursor-help"
+                          title={formatFullPrice(amount, '$')}
+                        >
+                          {formatExactPrice(amount, '$')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-card-foreground">
                         {parseFloat(tokens).toLocaleString()}
@@ -382,7 +409,12 @@ const PropertyDetail = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Price Per Token</label>
-            <p className="text-2xl font-bold text-card-foreground">{formatPrice(metrics.pricePerToken || 0, 'USD')}</p>
+            <p 
+              className="text-2xl font-bold text-card-foreground cursor-help"
+              title={formatFullPrice(metrics.pricePerToken || 0, '$')}
+            >
+              {formatExactPrice(metrics.pricePerToken || 0, '$')}
+            </p>
           </div>
         </div>
       </Card>
@@ -427,7 +459,12 @@ const PropertyDetail = () => {
                         {parseFloat(tokens).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-card-foreground">
-                        {formatPrice(amount)}
+                        <span 
+                          className="cursor-help"
+                          title={formatFullPrice(amount, '$')}
+                        >
+                          {formatExactPrice(amount, '$')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {createdAt ? formatDate(createdAt) : 'N/A'}
@@ -486,7 +523,12 @@ const PropertyDetail = () => {
                         <Badge variant="info">{txnType}</Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-card-foreground">
-                        {formatPrice(amount)}
+                        <span 
+                          className="cursor-help"
+                          title={formatFullPrice(amount, '$')}
+                        >
+                          {formatExactPrice(amount, '$')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {createdAt ? formatDate(createdAt) : 'N/A'}

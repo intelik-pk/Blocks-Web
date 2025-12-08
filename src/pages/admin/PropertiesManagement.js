@@ -36,6 +36,7 @@ import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { useToast } from '../../components/ui/Toast';
 import { cn } from '../../utils/cn';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 import Loader from '../../components/Loder';
 import InputTwo from '../../components/ui/InputTwo';
 
@@ -1601,7 +1602,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border/50">
                         <div className="text-center">
                           <p className="text-[10px] text-muted-foreground font-medium mb-1">Total Value</p>
-                          <p className="text-sm font-bold text-card-foreground">{formatPrice(mappedProperty.pricing_total_value)}</p>
+                          <p className="text-sm font-bold text-card-foreground cursor-help" title={formatFullPrice(mappedProperty.pricing_total_value, '$')}>{formatPrice(mappedProperty.pricing_total_value)}</p>
                         </div>
                         <div className="text-center border-x border-border/50">
                           <p className="text-[10px] text-muted-foreground font-medium mb-1">Funding</p>
@@ -1726,7 +1727,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                     <div className="grid grid-cols-2 gap-3">
                       <Card variant="tertiary" className="p-3">
                         <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
-                        <p className="text-base font-bold text-card-foreground">{formatPrice(totalInvestment)}</p>
+                        <p 
+                          className="text-base font-bold text-card-foreground cursor-help"
+                          title={formatFullPrice(totalInvestment, '$')}
+                        >
+                          {formatExactPrice(totalInvestment, '$')}
+                        </p>
                       </Card>
                       <Card variant="tertiary" className="p-3">
                         <p className="text-xs text-muted-foreground mb-1">Total Buyers</p>
@@ -1769,11 +1775,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground">Total Value</label>
-                          <p className="text-sm text-card-foreground mt-1">{formatPrice(totalValue)}</p>
+                          <p 
+                            className="text-sm text-card-foreground mt-1 cursor-help"
+                            title={formatFullPrice(totalValue, '$')}
+                          >
+                            {formatExactPrice(totalValue, '$')}
+                          </p>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground">Price Per Token</label>
-                          <p className="text-sm text-card-foreground mt-1">{formatPrice(pricePerToken)}</p>
+                          <p 
+                            className="text-sm text-card-foreground mt-1 cursor-help"
+                            title={formatFullPrice(pricePerToken, '$')}
+                          >
+                            {formatExactPrice(pricePerToken, '$')}
+                          </p>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground">Funding Progress</label>
@@ -1992,7 +2008,15 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       <p>Type: {propertyToDelete.property_type}</p>
                       <p>Status: {propertyToDelete.status}</p>
                       <p>Location: {propertyToDelete.location_city}</p>
-                      <p>Total Value: {formatPrice(propertyToDelete.pricing_total_value)}</p>
+                      <p>
+                        Total Value:{' '}
+                        <span 
+                          className="cursor-help font-semibold"
+                          title={formatFullPrice(propertyToDelete.pricing_total_value, '$')}
+                        >
+                          {formatExactPrice(propertyToDelete.pricing_total_value, '$')}
+                        </span>
+                      </p>
                     </div>
                   </Card>
 
@@ -2098,12 +2122,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   { id: 'transactions', label: 'Transactions', icon: Activity }
                 ];
 
-                const StatCard = ({ title, value, icon: Icon, color = 'blue' }) => (
+                const StatCard = ({ title, value, icon: Icon, color = 'blue', isAmount = false }) => (
                   <Card variant="tertiary" className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs font-medium text-muted-foreground">{title}</p>
-                        <p className="text-xl font-bold text-card-foreground mt-1">{value}</p>
+                        {isAmount ? (
+                          <p 
+                            className="text-xl font-bold text-card-foreground mt-1 cursor-help"
+                            title={formatFullPrice(value, '$')}
+                          >
+                            {formatExactPrice(value, '$')}
+                          </p>
+                        ) : (
+                          <p className="text-xl font-bold text-card-foreground mt-1">{value}</p>
+                        )}
                       </div>
                       <div className={`p-2 rounded-full bg-${color}-100 dark:bg-${color}-900/20`}>
                         <Icon className={`w-5 h-5 text-${color}-600 dark:text-${color}-400`} />
@@ -2115,7 +2148,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 const renderOverview = () => (
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <StatCard title="Total Investment" value={formatPrice(totalInvestment)} icon={DollarSign} color="green" />
+                      <StatCard title="Total Investment" value={totalInvestment} icon={DollarSign} color="green" isAmount={true} />
                       <StatCard title="Total Buyers" value={uniqueBuyers.size || 0} icon={Users} color="blue" />
                       <StatCard title="Tokens Left" value={tokensLeft || 0} icon={Target} color="yellow" />
                       <StatCard title="ROI" value={`${expectedROI || 0}%`} icon={TrendingUp} color="purple" />
@@ -2147,11 +2180,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground mb-1">Total Value</label>
-                          <p className="text-sm text-card-foreground">{formatPrice(totalValueUSDT, 'USD')}</p>
+                          <p 
+                            className="text-sm text-card-foreground cursor-help"
+                            title={formatFullPrice(totalValueUSDT, '$')}
+                          >
+                            {formatExactPrice(totalValueUSDT, '$')}
+                          </p>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground mb-1">Price Per Token</label>
-                          <p className="text-sm text-card-foreground">{formatPrice(pricePerToken, 'USD')}</p>
+                          <p 
+                            className="text-sm text-card-foreground cursor-help"
+                            title={formatFullPrice(pricePerToken, '$')}
+                          >
+                            {formatExactPrice(pricePerToken, '$')}
+                          </p>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground mb-1">Total Tokens</label>
@@ -2200,7 +2243,14 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                                     <td className="px-4 py-2 whitespace-nowrap">
                                       <div className="text-xs font-medium text-card-foreground">{userName}</div>
                                     </td>
-                                    <td className="px-4 py-2 whitespace-nowrap text-xs text-card-foreground">{formatPrice(amount)}</td>
+                                    <td className="px-4 py-2 whitespace-nowrap text-xs text-card-foreground">
+                                      <span 
+                                        className="cursor-help"
+                                        title={formatFullPrice(amount, '$')}
+                                      >
+                                        {formatExactPrice(amount, '$')}
+                                      </span>
+                                    </td>
                                     <td className="px-4 py-2 whitespace-nowrap text-xs text-card-foreground">{parseFloat(tokens).toLocaleString()}</td>
                                     <td className="px-4 py-2 whitespace-nowrap text-xs text-muted-foreground">{createdAt ? formatDate(createdAt) : 'N/A'}</td>
                                   </tr>
@@ -2320,7 +2370,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-muted-foreground mb-1">Price Per Token</label>
-                          <p className="text-lg font-bold text-card-foreground">{formatPrice(pricePerToken, 'USD')}</p>
+                          <p 
+                            className="text-lg font-bold text-card-foreground cursor-help"
+                            title={formatFullPrice(pricePerToken, '$')}
+                          >
+                            {formatExactPrice(pricePerToken, '$')}
+                          </p>
                         </div>
                       </div>
                     </Card>
@@ -2365,7 +2420,14 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                                     <td className="px-4 py-2 whitespace-nowrap">
                                       <Badge variant="info" className="text-xs">{txnType}</Badge>
                                     </td>
-                                    <td className="px-4 py-2 whitespace-nowrap text-xs text-card-foreground">{formatPrice(amount)}</td>
+                                    <td className="px-4 py-2 whitespace-nowrap text-xs text-card-foreground">
+                                      <span 
+                                        className="cursor-help"
+                                        title={formatFullPrice(amount, '$')}
+                                      >
+                                        {formatExactPrice(amount, '$')}
+                                      </span>
+                                    </td>
                                     <td className="px-4 py-2 whitespace-nowrap text-xs text-muted-foreground">{createdAt ? formatDate(createdAt) : 'N/A'}</td>
                                   </tr>
                                 );
@@ -2630,7 +2692,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <Card className="p-4">
                   <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
-                  <p className="text-lg font-bold text-card-foreground">{formatPrice(totalInvestment)}</p>
+                  <p 
+                    className="text-lg font-bold text-card-foreground cursor-help"
+                    title={formatFullPrice(totalInvestment, '$')}
+                  >
+                    {formatExactPrice(totalInvestment, '$')}
+                  </p>
                 </Card>
                 <Card className="p-4">
                   <p className="text-xs text-muted-foreground mb-1">Total Buyers</p>
@@ -2650,7 +2717,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                 <Card className="p-4">
                   <p className="text-xs text-muted-foreground mb-1">Price Per Token</p>
-                  <p className="text-lg font-bold text-card-foreground">{formatPrice(pricePerToken)}</p>
+                  <p 
+                    className="text-lg font-bold text-card-foreground cursor-help"
+                    title={formatFullPrice(pricePerToken, '$')}
+                  >
+                    {formatExactPrice(pricePerToken, '$')}
+                  </p>
                 </Card>
                 <Card className="p-4">
                   <p className="text-xs text-muted-foreground mb-1">Total Tokens</p>
@@ -2686,11 +2758,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-muted-foreground">Total Value</label>
-                    <p className="text-base text-card-foreground">{formatPrice(totalValue)}</p>
+                    <p 
+                      className="text-base text-card-foreground cursor-help"
+                      title={formatFullPrice(totalValue, '$')}
+                    >
+                      {formatExactPrice(totalValue, '$')}
+                    </p>
                 </div>
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground">Min Investment</label>
-                    <p className="text-base text-card-foreground">{formatPrice(selectedProperty.pricing_min_investment || 0)}</p>
+                    <p 
+                      className="text-base text-card-foreground cursor-help"
+                      title={formatFullPrice(selectedProperty.pricing_min_investment || 0, '$')}
+                    >
+                      {formatExactPrice(selectedProperty.pricing_min_investment || 0, '$')}
+                    </p>
                   </div>
                   </div>
               </Card>
@@ -2758,7 +2840,15 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   <p>Type: {propertyToDelete.property_type}</p>
                   <p>Status: {propertyToDelete.status}</p>
                   <p>Location: {propertyToDelete.location_city}</p>
-                  <p>Total Value: {formatPrice(propertyToDelete.pricing_total_value)}</p>
+                  <p>
+                    Total Value:{' '}
+                    <span 
+                      className="cursor-help font-semibold"
+                      title={formatFullPrice(propertyToDelete.pricing_total_value, '$')}
+                    >
+                      {formatExactPrice(propertyToDelete.pricing_total_value, '$')}
+                    </span>
+                  </p>
                   <p>Funding: {calculateFundingPercentage(
                     propertyToDelete.tokenization_total_tokens,
                     propertyToDelete.tokenization_available_tokens

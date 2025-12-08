@@ -2,6 +2,7 @@ import React from 'react';
 import { Calendar, ArrowRight, CheckCircle, Clock, XCircle } from 'lucide-react';
 import Badge from '../ui/Badge';
 import { cn } from '../../utils/cn';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 
 const TransactionRow = ({ transaction, backendFields = {} }) => {
   // Backend-aware field mapping
@@ -46,44 +47,21 @@ const TransactionRow = ({ transaction, backendFields = {} }) => {
     }
   };
 
-  // Format amount as string with comma separators (USD 1,234.56)
-  const formatAmountString = (amount, currency = 'USD') => {
-    const num = parseFloat(amount || 0);
-    const absNum = Math.abs(num);
-    
-    // Format with commas for thousands
-    const formatNumber = (value) => {
-      return value.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-    };
-    
-    let formatted;
-    if (absNum >= 1000000000) {
-      formatted = `${currency} ${formatNumber(absNum / 1000000000)}B`;
-    } else if (absNum >= 1000000) {
-      formatted = `${currency} ${formatNumber(absNum / 1000000)}M`;
-    } else if (absNum >= 1000) {
-      formatted = `${currency} ${formatNumber(absNum / 1000)}K`;
-    } else {
-      formatted = `${currency} ${formatNumber(absNum)}`;
-    }
-    return formatted;
-  };
-
-  // Format amount with color
+  // Format amount with color - using exact price with 2 decimals
   const formatAmount = (amount, currency = 'USD') => {
     const num = parseFloat(amount || 0);
     const isPositive = num >= 0;
-    const formatted = formatAmountString(amount, currency);
+    const formatted = formatExactPrice(Math.abs(num), currency);
 
     return (
-      <span className={cn(
-        "font-semibold",
-        isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-      )}>
-        {isPositive ? '+' : ''}{formatted}
+      <span 
+        className={cn(
+          "font-semibold cursor-help",
+          isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+        )}
+        title={formatFullPrice(Math.abs(num), currency)}
+      >
+        {isPositive ? '+' : '-'}{formatted}
       </span>
     );
   };
@@ -109,6 +87,87 @@ const TransactionRow = ({ transaction, backendFields = {} }) => {
   
   // Transaction Type: transactionType → transaction_type → type → method
   const transactionType = getField(transaction, 'transactionType', 'transaction_type', 'type', 'method');
+  const transactionTypeLower = transactionType ? String(transactionType).toLowerCase() : '';
+  const isInvestment = transactionTypeLower === 'investment' || 
+                       transactionTypeLower === 'invested' || 
+                       transactionTypeLower === 'invest' ||
+                       transactionTypeLower.includes('investment');
+  const isReward = transactionTypeLower === 'reward' || 
+                   transactionTypeLower === 'rewards' ||
+                   transactionTypeLower.includes('reward');
+  const showPropertyName = isInvestment || isReward; // Show property name for both investment and rewards
+  
+  // Property Name: Extract from various possible field structures
+  let propertyName = null;
+  
+  // Try to get property object first
+  const propertyObj = getField(
+    transaction,
+    'property',
+    'propertyData',
+    'investmentProperty',
+    'propertyInfo'
+  );
+  
+  // If property is an object, extract name from it
+  if (propertyObj && typeof propertyObj === 'object' && propertyObj !== null && !Array.isArray(propertyObj)) {
+    propertyName = propertyObj.title || 
+                   propertyObj.name || 
+                   propertyObj.propertyName ||
+                   propertyObj.property_name ||
+                   propertyObj.displayCode ||
+                   propertyObj.display_code ||
+                   propertyObj.propertyTitle ||
+                   propertyObj.property_title;
+  }
+  
+  // If no property name found from object, try direct fields
+  if (!propertyName) {
+    propertyName = getField(
+      transaction,
+      'property?.title',
+      'property?.name',
+      'property?.propertyName',
+      'property?.displayCode',
+      'property_title',
+      'propertyName',
+      'propertyTitle',
+      'property_name',
+      'investmentPropertyName',
+      'investment_property_name',
+      'propertyDisplayCode',
+      'property_display_code',
+      'propertyId', // Sometimes propertyId might contain the name
+      'property_id'
+    );
+  }
+  
+  // Convert to string if it's not null/undefined, and clean it up
+  let propertyNameStr = null;
+  if (propertyName) {
+    propertyNameStr = String(propertyName).trim();
+    // If it's empty after trimming, set to null
+    if (propertyNameStr === '') {
+      propertyNameStr = null;
+    }
+  }
+  
+  // Debug logging for investment/rewards transactions to help identify property field structure
+  if (showPropertyName && !propertyNameStr) {
+    console.log(`🔍 ${isInvestment ? 'Investment' : 'Reward'} Transaction - Property Name Not Found:`, {
+      transactionId: transaction.id || transaction._id,
+      transactionType: transactionType,
+      propertyObj: propertyObj,
+      propertyFields: {
+        property: transaction.property,
+        property_title: transaction.property_title,
+        propertyName: transaction.propertyName,
+        propertyTitle: transaction.propertyTitle,
+        property_name: transaction.property_name
+      },
+      fullTransaction: transaction
+    });
+  }
   
   // FROM: sender → from → user → buyer → email → "-"
   // Priority order: sender → from → user (object or string) → buyer → email
@@ -149,6 +208,26 @@ const TransactionRow = ({ transaction, backendFields = {} }) => {
   let toUserDisplay = toUser;
   if (toUser && typeof toUser === 'object') {
     toUserDisplay = toUser.fullName || toUser.name || toUser.email || toUser.username || 'User';
+  }
+  
+  // For investment/rewards transactions: show username → property name
+  // For rewards: show property name → investor name (reversed)
+  // For other transactions: show fromUser → toUser
+  let fromDisplay, toDisplay;
+  if (showPropertyName) {
+    if (isReward) {
+      // Rewards: Property Name → Investor Name (reversed order)
+      fromDisplay = propertyNameStr || 'Property';
+      toDisplay = fromUserDisplay || 'Investor';
+    } else {
+      // Investment: Username → Property Name
+      fromDisplay = fromUserDisplay || 'Investor';
+      toDisplay = propertyNameStr || 'Property';
+    }
+  } else {
+    // Regular transaction: From → To
+    fromDisplay = fromUserDisplay || 'System';
+    toDisplay = toUserDisplay || 'System';
   }
   
   // Status: status
@@ -218,14 +297,14 @@ const TransactionRow = ({ transaction, backendFields = {} }) => {
       {/* From → To - Only render if backend provides from/to fields */}
       {backendFields.hasFromTo !== false && (
         <td className="px-4 py-4">
-          {(fromUserDisplay || toUserDisplay) ? (
+          {(fromDisplay || toDisplay) ? (
             <div className="flex items-center text-sm">
-              <span className="text-foreground truncate max-w-[120px]">
-                {fromUserDisplay || 'System'}
+              <span className="text-foreground truncate max-w-[120px]" title={fromDisplay}>
+                {fromDisplay}
               </span>
               <ArrowRight className="w-4 h-4 mx-2 text-muted-foreground flex-shrink-0" />
-              <span className="text-foreground truncate max-w-[120px]">
-                {toUserDisplay || 'System'}
+              <span className="text-foreground truncate max-w-[120px]" title={toDisplay}>
+                {toDisplay}
               </span>
             </div>
           ) : (
@@ -267,7 +346,12 @@ const TransactionRow = ({ transaction, backendFields = {} }) => {
                 ? "text-green-600 dark:text-green-400" 
                 : "text-red-600 dark:text-red-400"
             )}>
-              {formatAmountString(endBalance, currency)}
+              <span 
+                className="cursor-help"
+                title={formatFullPrice(endBalance, currency)}
+              >
+                {formatExactPrice(endBalance, currency)}
+              </span>
             </span>
           ) : (
             <span className="text-sm text-muted-foreground">—</span>

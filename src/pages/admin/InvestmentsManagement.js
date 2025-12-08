@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { 
   Search, 
@@ -9,14 +9,27 @@ import {
   Calendar,
   CheckCircle,
   Clock,
-  XCircle
+  XCircle,
+  Filter,
+  X,
+  Award,
+  ArrowUpRight,
+  Activity,
+  DollarSign,
+  TrendingDown,
+  Users,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
+import InputTwo from '../../components/ui/InputTwo';
 import { adminAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
+import { cn } from '../../utils/cn';
+import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
 
 // Helper function to get full certificate URL from path
 // Expected format in Neon DB: Full URL like:
@@ -53,6 +66,35 @@ const InvestmentsManagement = () => {
     sort_order: 'desc'
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [openFilterPanel, setOpenFilterPanel] = useState(null);
+  const filterPanelRef = useRef(null);
+  
+  // Insights tabs and pagination state
+  const [topInvestorsTab, setTopInvestorsTab] = useState('all'); // 'all', 'month', 'year'
+  const [topInvestorsPage, setTopInvestorsPage] = useState(1);
+  const [propertyBreakdownTab, setPropertyBreakdownTab] = useState('all'); // 'all', 'active', 'amount'
+  const [propertyBreakdownPage, setPropertyBreakdownPage] = useState(1);
+  const [recentActivityTab, setRecentActivityTab] = useState('all'); // 'all', 'investments', 'status'
+  const [recentActivityPage, setRecentActivityPage] = useState(1);
+  const [propertySearchTerm, setPropertySearchTerm] = useState(''); // For filtering properties in the filter panel
+  
+  const itemsPerPageTable = 20;
+  const insightsItemsPerPage = 5; // Show 5 items per page in insight cards
+
+  // Click outside handler for filter panel
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target)) {
+        setOpenFilterPanel(null);
+      }
+    };
+    if (openFilterPanel) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [openFilterPanel]);
 
   // Fetch investments
   const { data: investmentsData, isLoading, error } = useQuery(
@@ -145,10 +187,14 @@ const InvestmentsManagement = () => {
       pendingInvestments: 0,
       totalInvestors: 0,
       investmentCount: parseInt(dashboardInvestments.count || 0),
-      averageInvestment: parseFloat(dashboardInvestments.averageInvestment || 0)
+      averageInvestment: parseFloat(dashboardInvestments.averageInvestment || 0),
+      newInvestorsThisWeek: 0,
+      totalTokens: 0
     };
     
     const uniqueInvestors = new Set();
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
     
     console.log('📊 Dashboard investments data:', dashboardInvestments);
     console.log('📊 Calculating counts from investments:', investments.length);
@@ -157,10 +203,20 @@ const InvestmentsManagement = () => {
     investments.forEach((inv) => {
       const status = (inv.status || '').toLowerCase();
       const userId = inv.user_id || inv.userId;
+      const createdAt = new Date(inv.createdAt || inv.created_at);
+      const tokens = parseFloat(
+        inv.tokensToBuy || 
+        inv.tokens_bought || 
+        inv.tokens || 
+        inv.tokensBought ||
+        inv.tokensPurchased ||
+        0
+      );
       
       // Count by status
       if (status === 'active' || status === 'confirmed' || status === 'completed') {
         stats.activeInvestments++;
+        stats.totalTokens += tokens;
       } else if (status === 'pending') {
         stats.pendingInvestments++;
       }
@@ -168,6 +224,11 @@ const InvestmentsManagement = () => {
       // Count unique investors
       if (userId) {
         uniqueInvestors.add(userId);
+        
+        // Count new investors this week
+        if (createdAt >= weekAgo) {
+          stats.newInvestorsThisWeek++;
+        }
       }
     });
     
@@ -178,13 +239,171 @@ const InvestmentsManagement = () => {
     return stats;
   }, [investments, dashboardData]);
 
+  // Calculate top investors with time-based filtering
+  const topInvestors = useMemo(() => {
+    const investorMap = new Map();
+    const now = new Date();
+    let startDate = null;
+    
+    // Filter by time period
+    if (topInvestorsTab === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (topInvestorsTab === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+    }
+    
+    investments.forEach((inv) => {
+      const userId = inv.user_id || inv.userId;
+      const userName = inv.user?.fullName || inv.user_name || 'Unknown';
+      const amount = parseFloat(inv.amountUSDT || inv.amount_invested || inv.amount || 0);
+      const status = (inv.status || '').toLowerCase();
+      const createdAt = new Date(inv.createdAt || inv.created_at);
+      
+      // Filter by time period if needed
+      if (startDate && createdAt < startDate) {
+        return;
+      }
+      
+      // Only count active/completed investments
+      if ((status === 'active' || status === 'confirmed' || status === 'completed') && userId) {
+        if (!investorMap.has(userId)) {
+          investorMap.set(userId, {
+            userId,
+            name: userName,
+            totalAmount: 0,
+            investmentCount: 0
+          });
+        }
+        
+        const investor = investorMap.get(userId);
+        investor.totalAmount += amount;
+        investor.investmentCount++;
+      }
+    });
+    
+    return Array.from(investorMap.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [investments, topInvestorsTab]);
+  
+  // Paginated top investors
+  const paginatedTopInvestors = useMemo(() => {
+    const startIndex = (topInvestorsPage - 1) * insightsItemsPerPage;
+    const endIndex = startIndex + insightsItemsPerPage;
+    return topInvestors.slice(startIndex, endIndex);
+  }, [topInvestors, topInvestorsPage]);
+  
+  const topInvestorsTotalPages = Math.ceil(topInvestors.length / insightsItemsPerPage);
+
+  // Calculate property breakdown with filtering
+  const propertyBreakdown = useMemo(() => {
+    const propertyMap = new Map();
+    let totalInvested = 0;
+    
+    investments.forEach((inv) => {
+      const propertyTitle = inv.property?.title || inv.property_title || 'Unknown';
+      const amount = parseFloat(inv.amountUSDT || inv.amount_invested || inv.amount || 0);
+      const status = (inv.status || '').toLowerCase();
+      
+      // Filter based on tab
+      if (propertyBreakdownTab === 'active' && status !== 'active' && status !== 'confirmed' && status !== 'completed') {
+        return;
+      }
+      
+      // Only count active/completed investments (unless showing all)
+      if (propertyBreakdownTab === 'all' || status === 'active' || status === 'confirmed' || status === 'completed') {
+        if (!propertyMap.has(propertyTitle)) {
+          propertyMap.set(propertyTitle, {
+            property: propertyTitle,
+            totalAmount: 0,
+            investmentCount: 0
+          });
+        }
+        
+        const property = propertyMap.get(propertyTitle);
+        property.totalAmount += amount;
+        property.investmentCount++;
+        totalInvested += amount;
+      }
+    });
+    
+    let sorted = Array.from(propertyMap.values())
+      .map(p => ({
+        ...p,
+        percentage: totalInvested > 0 ? (p.totalAmount / totalInvested) * 100 : 0
+      }));
+    
+    // Sort based on tab
+    if (propertyBreakdownTab === 'amount') {
+      sorted = sorted.sort((a, b) => b.totalAmount - a.totalAmount);
+    } else {
+      sorted = sorted.sort((a, b) => b.totalAmount - a.totalAmount);
+    }
+    
+    return sorted;
+  }, [investments, propertyBreakdownTab]);
+  
+  // Paginated property breakdown
+  const paginatedPropertyBreakdown = useMemo(() => {
+    const startIndex = (propertyBreakdownPage - 1) * insightsItemsPerPage;
+    const endIndex = startIndex + insightsItemsPerPage;
+    return propertyBreakdown.slice(startIndex, endIndex);
+  }, [propertyBreakdown, propertyBreakdownPage]);
+  
+  const propertyBreakdownTotalPages = Math.ceil(propertyBreakdown.length / insightsItemsPerPage);
+
+  // Calculate recent activity with filtering
+  const recentActivity = useMemo(() => {
+    let filtered = [...investments];
+    
+    // Filter based on tab
+    if (recentActivityTab === 'investments') {
+      // Only show investment activities
+      filtered = filtered.filter(inv => {
+        const type = (inv.transactionType || inv.transaction_type || '').toLowerCase();
+        return type === 'investment' || type === 'invested' || type === 'invest';
+      });
+    } else if (recentActivityTab === 'status') {
+      // Only show status changes (pending -> active, etc.)
+      filtered = filtered.filter(inv => {
+        const status = (inv.status || '').toLowerCase();
+        return status === 'pending' || status === 'active' || status === 'completed';
+      });
+    }
+    
+    return filtered
+      .sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.created_at || 0);
+        const dateB = new Date(b.createdAt || b.created_at || 0);
+        return dateB - dateA;
+      })
+      .map(inv => ({
+        id: inv.id || inv._id,
+        userName: inv.user?.fullName || inv.user_name || 'Unknown',
+        propertyTitle: inv.property?.title || inv.property_title || 'Unknown',
+        amount: parseFloat(inv.amountUSDT || inv.amount_invested || inv.amount || 0),
+        status: inv.status || 'unknown',
+        date: new Date(inv.createdAt || inv.created_at)
+      }));
+  }, [investments, recentActivityTab]);
+  
+  // Paginated recent activity
+  const paginatedRecentActivity = useMemo(() => {
+    const startIndex = (recentActivityPage - 1) * insightsItemsPerPage;
+    const endIndex = startIndex + insightsItemsPerPage;
+    return recentActivity.slice(startIndex, endIndex);
+  }, [recentActivity, recentActivityPage]);
+  
+  const recentActivityTotalPages = Math.ceil(recentActivity.length / insightsItemsPerPage);
+
   // Debug logging
   console.log('Investments Data:', {
     raw: investmentsData,
     investments: investments,
     pagination: pagination,
     count: investments.length,
-    summary: summary
+    summary: summary,
+    topInvestors: topInvestors,
+    propertyBreakdown: propertyBreakdown
   });
   
   // Debug: Log sample investment to see available fields
@@ -285,6 +504,20 @@ const InvestmentsManagement = () => {
     return filtered;
   }, [investments, filters]);
 
+  // Client-side pagination for table
+  const totalFiltered = filteredInvestments.length;
+  const totalPages = Math.ceil(totalFiltered / itemsPerPageTable);
+  
+  const paginatedInvestments = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPageTable;
+    const endIndex = startIndex + itemsPerPageTable;
+    return filteredInvestments.slice(startIndex, endIndex);
+  }, [filteredInvestments, currentPage]);
+  
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.search, filters.status, filters.property, filters.sort_by]);
+
   const getStatusBadge = (status) => {
     const statusMap = {
       'active': { variant: 'success', text: 'Active', icon: CheckCircle },
@@ -296,6 +529,7 @@ const InvestmentsManagement = () => {
     return statusMap[status] || { variant: 'default', text: status, icon: Clock };
   };
 
+  // Keep formatPrice for summary cards (abbreviated display)
   const formatPrice = (amount, currency = 'USD') => {
     const num = parseFloat(amount);
     if (num >= 1000000000) {
@@ -305,7 +539,7 @@ const InvestmentsManagement = () => {
     } else if (num >= 1000) {
       return `${currency} ${(num / 1000).toFixed(0)}K`;
     }
-    return `${currency} ${num.toFixed(0)}`;
+    return `${currency}${num.toFixed(0)}`;
   };
 
   const formatDate = (dateString) => {
@@ -316,6 +550,43 @@ const InvestmentsManagement = () => {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatTimeAgo = (date) => {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const activeFiltersCount = [
+    filters.search,
+    filters.status,
+    filters.property,
+    filters.sort_by !== 'created_at' || filters.sort_order !== 'desc'
+  ].filter(Boolean).length;
+
+  const clearAllFilters = () => {
+    setFilters({
+      search: '',
+      status: '',
+      property: '',
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    });
+  };
+
+  const toggleFilter = (filterKey, value) => {
+    const currentValue = filters[filterKey];
+    if (currentValue === value) {
+      setFilters(prev => ({ ...prev, [filterKey]: '' }));
+    } else {
+      setFilters(prev => ({ ...prev, [filterKey]: value }));
+    }
   };
 
   if (!isAuthenticated) {
@@ -350,188 +621,753 @@ const InvestmentsManagement = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-card-foreground">Investments Management</h2>
-          <p className="text-muted-foreground">Monitor all property investments</p>
+          <h2 className="text-3xl font-bold text-card-foreground tracking-tight">Investments</h2>
+          <p className="text-muted-foreground text-sm mt-1">Monitor and manage all property investments</p>
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - Improved with trends */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-green-600" />
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-shadow">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                <TrendingUp className="w-3 h-3" />
+                <span>12%</span>
+              </div>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted-foreground">Total Investments</p>
-              <p className="text-2xl font-bold text-card-foreground">
-                {formatPrice(summary.totalInvestments)}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Total Invested</p>
+              <p 
+                className="text-3xl font-bold text-card-foreground tracking-tight cursor-help"
+                title={formatFullPrice(summary.totalInvestments, '$')}
+              >
+                {formatExactPrice(summary.totalInvestments, '$')}
               </p>
+              <p className="text-xs text-muted-foreground mt-1">Last 30 days</p>
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Building2 className="w-6 h-6 text-blue-600" />
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-shadow">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              {summary.pendingInvestments > 0 && (
+                <Badge variant="warning" className="text-xs px-2 py-0.5">
+                  {summary.pendingInvestments} pending
+                </Badge>
+              )}
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted-foreground">Active Investments</p>
-              <p className="text-2xl font-bold text-card-foreground">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Active Investments</p>
+              <p className="text-3xl font-bold text-card-foreground tracking-tight">
                 {summary.activeInvestments}
               </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted-foreground">Pending</p>
-              <p className="text-2xl font-bold text-card-foreground">
-                {summary.pendingInvestments}
+              <p className="text-xs text-muted-foreground mt-1">
+                {summary.totalTokens.toLocaleString()} tokens
               </p>
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <User className="w-6 h-6 text-purple-600" />
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-shadow">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                <Users className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              {summary.newInvestorsThisWeek > 0 && (
+                <div className="flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400">
+                  <ArrowUpRight className="w-3 h-3" />
+                  <span>{summary.newInvestorsThisWeek} new</span>
+                </div>
+              )}
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted-foreground">Total Investors</p>
-              <p className="text-2xl font-bold text-card-foreground">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Total Investors</p>
+              <p className="text-3xl font-bold text-card-foreground tracking-tight">
                 {summary.totalInvestors}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Avg{' '}
+                <span 
+                  className="cursor-help"
+                  title={formatFullPrice(summary.averageInvestment, '$')}
+                >
+                  {formatExactPrice(summary.averageInvestment, '$')}
+                </span>{' '}
+                each
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-shadow">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+                <Building2 className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Properties</p>
+              <p className="text-3xl font-bold text-card-foreground tracking-tight">
+                {propertyBreakdown.length}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Active listings
               </p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Filters */}
-      <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Search</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search investments..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                  }
+      
+      {/* Insights Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Top Investors */}
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Award className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+              <h3 className="text-base font-semibold text-card-foreground">Top Investors</h3>
+            </div>
+            {topInvestorsTotalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setTopInvestorsPage(prev => Math.max(prev - 1, 1))}
+                  disabled={topInvestorsPage === 1}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    topInvestorsPage > 1
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Previous"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setTopInvestorsPage(prev => Math.min(prev + 1, topInvestorsTotalPages))}
+                  disabled={topInvestorsPage === topInvestorsTotalPages}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    topInvestorsPage < topInvestorsTotalPages
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Next"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 border-b border-border/40">
+            {[
+              { id: 'all', label: 'All Time' },
+              { id: 'month', label: 'This Month' },
+              { id: 'year', label: 'This Year' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setTopInvestorsTab(tab.id);
+                  setTopInvestorsPage(1);
                 }}
-                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-              />
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-all duration-200 border-b-2 -mb-[1px]",
+                  topInvestorsTab === tab.id
+                    ? "text-primary border-primary"
+                    : "text-muted-foreground border-transparent hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          
+          <div className="space-y-3 min-h-[200px]">
+            {paginatedTopInvestors.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
+            ) : (
+              paginatedTopInvestors.map((investor, index) => {
+                const globalIndex = (topInvestorsPage - 1) * insightsItemsPerPage + index;
+                return (
+                  <div 
+                    key={investor.userId}
+                    className="flex items-center justify-between p-3 rounded-lg bg-accent/30 hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 font-bold text-sm">
+                        {globalIndex + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-card-foreground">{investor.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {investor.investmentCount} {investor.investmentCount === 1 ? 'investment' : 'investments'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                    <p 
+                      className="text-sm font-bold text-green-600 dark:text-green-400 cursor-help"
+                      title={formatFullPrice(investor.totalAmount, '$')}
+                    >
+                      {formatExactPrice(investor.totalAmount, '$')}
+                    </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </Card>
+
+        {/* Property Breakdown */}
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              <h3 className="text-base font-semibold text-card-foreground">Property Breakdown</h3>
+            </div>
+            {propertyBreakdownTotalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPropertyBreakdownPage(prev => Math.max(prev - 1, 1))}
+                  disabled={propertyBreakdownPage === 1}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    propertyBreakdownPage > 1
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Previous"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setPropertyBreakdownPage(prev => Math.min(prev + 1, propertyBreakdownTotalPages))}
+                  disabled={propertyBreakdownPage === propertyBreakdownTotalPages}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    propertyBreakdownPage < propertyBreakdownTotalPages
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Next"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 border-b border-border/40">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'active', label: 'Active Only' },
+              { id: 'amount', label: 'By Amount' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setPropertyBreakdownTab(tab.id);
+                  setPropertyBreakdownPage(1);
+                }}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-all duration-200 border-b-2 -mb-[1px]",
+                  propertyBreakdownTab === tab.id
+                    ? "text-primary border-primary"
+                    : "text-muted-foreground border-transparent hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          
+          <div className="space-y-3 min-h-[200px]">
+            {paginatedPropertyBreakdown.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
+            ) : (
+              paginatedPropertyBreakdown.map((property) => (
+                <div key={property.property} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-card-foreground truncate max-w-[180px]">
+                      {property.property}
+                    </p>
+                    <p className="text-sm font-bold text-card-foreground">
+                      {property.percentage.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="w-full h-2 bg-accent rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-500"
+                      style={{ width: `${property.percentage}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    <span 
+                      className="cursor-help"
+                      title={formatFullPrice(property.totalAmount, '$')}
+                    >
+                      {formatExactPrice(property.totalAmount, '$')}
+                    </span> • {property.investmentCount} investments
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Recent Activity */}
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <h3 className="text-base font-semibold text-card-foreground">Recent Activity</h3>
+            </div>
+            {recentActivityTotalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setRecentActivityPage(prev => Math.max(prev - 1, 1))}
+                  disabled={recentActivityPage === 1}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    recentActivityPage > 1
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Previous"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setRecentActivityPage(prev => Math.min(prev + 1, recentActivityTotalPages))}
+                  disabled={recentActivityPage === recentActivityTotalPages}
+                  className={cn(
+                    "p-1.5 rounded-lg border transition-colors",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    recentActivityPage < recentActivityTotalPages
+                      ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                      : "bg-background/30 border-border/50 text-muted-foreground"
+                  )}
+                  title="Next"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 border-b border-border/40">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'investments', label: 'Investments' },
+              { id: 'status', label: 'Status' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setRecentActivityTab(tab.id);
+                  setRecentActivityPage(1);
+                }}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-all duration-200 border-b-2 -mb-[1px]",
+                  recentActivityTab === tab.id
+                    ? "text-primary border-primary"
+                    : "text-muted-foreground border-transparent hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          
+          <div className="space-y-3 min-h-[200px]">
+            {paginatedRecentActivity.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No activity yet</p>
+            ) : (
+              paginatedRecentActivity.map((activity) => (
+                <div 
+                  key={activity.id}
+                  className="flex gap-3 p-2 rounded-lg hover:bg-accent/30 transition-colors"
+                >
+                  <div className="flex-shrink-0 mt-1">
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      activity.status === 'active' || activity.status === 'completed' 
+                        ? "bg-green-500" 
+                        : activity.status === 'pending'
+                        ? "bg-yellow-500"
+                        : "bg-gray-400"
+                    )} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-card-foreground leading-relaxed">
+                      <span className="font-medium">{activity.userName}</span> invested{' '}
+                      <span 
+                        className="font-semibold text-green-600 dark:text-green-400 cursor-help"
+                        title={formatFullPrice(activity.amount, '$')}
+                      >
+                        {formatExactPrice(activity.amount, '$')}
+                      </span>{' '}
+                      in <span className="font-medium">{activity.propertyTitle}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatTimeAgo(activity.date)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+
+      {/* Modern Filters */}
+      <Card variant="primary" className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-2">
+            <Filter className="w-5 h-5 text-muted-foreground" />
+            <h3 className="text-lg font-semibold text-card-foreground">Filters</h3>
+            {activeFiltersCount > 0 && (
+              <Badge variant="info" className="ml-2">
+                {activeFiltersCount} active
+              </Badge>
+            )}
+          </div>
+          {activeFiltersCount > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={clearAllFilters}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              Clear All
+            </Button>
+          )}
+        </div>
+
+        <div className="relative w-full space-y-4" ref={filterPanelRef}>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Search Investments
+              </label>
+              <div className="relative">
+                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                <InputTwo
+                  type="text"
+                  name="search"
+                  placeholder="Search by investor, property, or amount..."
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                  style={{ paddingLeft: '48px' }}
+                />
+              </div>
+            </div>
+
+            <div className="flex-shrink-0">
+              <label className="block text-sm font-medium text-foreground mb-1">
+                More Filters
+              </label>
+              <button
+                type="button"
+                onClick={() => setOpenFilterPanel(prev => prev === 'main' ? null : 'main')}
+                className={cn(
+                  "px-5 py-2 border rounded-lg bg-card text-card-foreground flex items-center gap-2 transition-all hover:border-primary/50 min-w-[120px]",
+                  openFilterPanel === 'main' || activeFiltersCount > 0
+                    ? 'border-primary bg-accent font-semibold' 
+                    : 'border-input'
+                )}
+              >
+                <Filter className="w-4 h-4" />
+                <span className="text-sm">Filters</span>
+                {activeFiltersCount > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">
+                    {activeFiltersCount}
+                  </span>
+                )}
+                <span className={cn(
+                  "transition-transform duration-200",
+                  openFilterPanel === 'main' ? "rotate-180" : ""
+                )}>▼</span>
+              </button>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-              <option value="failed">Failed</option>
-            </select>
-          </div>
+          {openFilterPanel === 'main' && (
+            <div className="w-full rounded-xl p-6 bg-gradient-to-br from-white/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60 backdrop-blur-xl border border-white/30 dark:border-slate-700/50 shadow-xl animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Status Filter */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-1 h-4 bg-blue-600 rounded-full"></span>
+                    Status
+                    {filters.status && (
+                      <span className="ml-2 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium">
+                        Selected
+                      </span>
+                    )}
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'active', label: 'Active' },
+                      { value: 'pending', label: 'Pending' },
+                      { value: 'completed', label: 'Completed' },
+                      { value: 'cancelled', label: 'Cancelled' }
+                    ].map((option) => {
+                      const isActive = filters.status === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => toggleFilter('status', option.value)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
+                            isActive
+                              ? "bg-blue-600 text-white border-blue-600 shadow-md hover:bg-blue-700"
+                              : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {isActive && <span className="text-xs">✓</span>}
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Property</label>
-            <select
-              value={filters.property}
-              onChange={(e) => handleFilterChange('property', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Properties</option>
-              {uniqueProperties.map((propertyTitle) => (
-                <option key={propertyTitle} value={propertyTitle}>
-                  {propertyTitle}
-                </option>
-              ))}
-            </select>
-          </div>
+                {/* Property Filter */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-1 h-4 bg-green-600 rounded-full"></span>
+                      Property
+                      {filters.property && (
+                        <span className="ml-2 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-medium">
+                          Selected
+                        </span>
+                      )}
+                    </h4>
+                    {uniqueProperties.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {uniqueProperties.length} {uniqueProperties.length === 1 ? 'property' : 'properties'}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Property Search Input */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search properties..."
+                      value={propertySearchTerm}
+                      onChange={(e) => setPropertySearchTerm(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg bg-white/60 dark:bg-slate-800/60 text-card-foreground focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
+                    />
+                    {propertySearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setPropertySearchTerm('')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        title="Clear search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Filtered Properties List */}
+                  <div className="flex flex-wrap gap-2 max-h-[200px] overflow-y-auto scrollbar-hide pr-1">
+                    {(() => {
+                      const filteredProperties = uniqueProperties.filter(property =>
+                        property.toLowerCase().includes(propertySearchTerm.toLowerCase())
+                      );
+                      
+                      if (filteredProperties.length === 0) {
+                        return (
+                          <p className="text-xs text-muted-foreground py-2 w-full text-center">
+                            No properties found matching "{propertySearchTerm}"
+                          </p>
+                        );
+                      }
+                      
+                      return filteredProperties.map((property) => {
+                        const isActive = filters.property === property;
+                        return (
+                          <button
+                            key={property}
+                            type="button"
+                            onClick={() => toggleFilter('property', property)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
+                              isActive
+                                ? "bg-green-600 text-white border-green-600 shadow-md hover:bg-green-700"
+                                : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-slate-700"
+                            )}
+                            title={property}
+                          >
+                            {isActive && <span className="text-xs">✓</span>}
+                            <span className="truncate max-w-[150px]">
+                              {property}
+                            </span>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                  
+                  {/* Show count if search is active */}
+                  {propertySearchTerm && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing {uniqueProperties.filter(p => p.toLowerCase().includes(propertySearchTerm.toLowerCase())).length} of {uniqueProperties.length} properties
+                    </p>
+                  )}
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Sort By</label>
-            <select
-              value={filters.sort_by}
-              onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="created_at">Date</option>
-              <option value="investment_amount">Amount</option>
-              <option value="status">Status</option>
-              <option value="property_title">Property</option>
-            </select>
-          </div>
+                {/* Sort Options */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-1 h-4 bg-orange-600 rounded-full"></span>
+                    Sort By
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'created_at', label: 'Date' },
+                      { value: 'investment_amount', label: 'Amount' },
+                      { value: 'status', label: 'Status' }
+                    ].map((option) => {
+                      const isActive = filters.sort_by === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setFilters(prev => ({ ...prev, sort_by: option.value }))}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                            isActive
+                              ? "bg-orange-600 text-white border-orange-600 shadow-md"
+                              : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-orange-50 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    {[
+                      { value: 'desc', label: '↓ Desc' },
+                      { value: 'asc', label: '↑ Asc' }
+                    ].map((option) => {
+                      const isActive = filters.sort_order === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setFilters(prev => ({ ...prev, sort_order: option.value }))}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                            isActive
+                              ? "bg-pink-600 text-white border-pink-600 shadow-md"
+                              : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-pink-50 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Order</label>
-            <select
-              value={filters.sort_order}
-              onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="desc">Descending</option>
-              <option value="asc">Ascending</option>
-            </select>
-          </div>
+          {/* Active Filters Chips */}
+          {activeFiltersCount > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {filters.search && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                  onClick={() => handleFilterChange('search', '')}
+                >
+                  <span>Search: "{filters.search}"</span>
+                  <X className="w-3 h-3" />
+                </div>
+              )}
+              
+              {filters.status && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors shadow-sm"
+                  onClick={() => handleFilterChange('status', '')}
+                >
+                  <span>Status: {filters.status}</span>
+                  <X className="w-3 h-3" />
+                </div>
+              )}
+              
+              {filters.property && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
+                  onClick={() => handleFilterChange('property', '')}
+                >
+                  <span>Property: {filters.property}</span>
+                  <X className="w-3 h-3" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Card>
 
-      {/* Investments Table */}
-      <Card className="overflow-hidden">
-        <div>
-          <table className="w-full table-fixed text-sm">
-            <thead className="bg-accent">
+      {/* Investments Table - New 5 Column Design */}
+      <Card className="overflow-hidden bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-accent/30 backdrop-blur-sm border-b border-border/50">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[10rem]">
-                  Investment
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[18rem]">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Investor
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[16rem]">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Property
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[8rem]">
-                  Amount
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Investment
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[7rem]">
-                  Tokens
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Ownership
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[8rem]">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Status
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[10rem]">
-                  Date
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[6rem]">
-                  Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-card divide-y divide-gray-200">
+            <tbody className="bg-card/50 divide-y divide-border/30">
               {filteredInvestments.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-muted-foreground">
+                  <td colSpan="5" className="px-6 py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center">
                       <TrendingUp className="w-12 h-12 text-muted-foreground mb-4" />
                       <p className="text-lg font-medium">No investments found</p>
@@ -540,9 +1376,8 @@ const InvestmentsManagement = () => {
                   </td>
                 </tr>
               ) : (
-                filteredInvestments.map((investment) => {
+                paginatedInvestments.map((investment) => {
                   // Extract tokens directly from investment data
-                  // Portfolio API is not working (returning 404), so use investment object directly
                   let tokens_bought = parseFloat(
                     investment.tokensToBuy || 
                     investment.tokens_bought || 
@@ -551,21 +1386,6 @@ const InvestmentsManagement = () => {
                     investment.tokensPurchased ||
                     0
                   );
-                  
-                  // Debug log for first 3 investments
-                  if (investments.indexOf(investment) < 3) {
-                    console.log(`🔍 Token Extraction #${investments.indexOf(investment) + 1}:`, {
-                      investmentId: investment.id || investment.displayCode,
-                      rawInvestmentData: {
-                        tokensToBuy: investment.tokensToBuy,
-                        tokens_bought: investment.tokens_bought,
-                        tokens: investment.tokens,
-                        tokensBought: investment.tokensBought,
-                        tokensPurchased: investment.tokensPurchased
-                      },
-                      extractedTokens: tokens_bought
-                    });
-                  }
                   
                   // Map backend field names to frontend
                   const mappedInvestment = {
@@ -580,182 +1400,275 @@ const InvestmentsManagement = () => {
                     certificatePath: investment.certificatePath || investment.certificate_path || null,
                   };
                   
-                  // Get full certificate URL
-                  const certificateUrl = mappedInvestment.certificatePath 
-                    ? getCertificateUrl(mappedInvestment.certificatePath)
-                    : null;
-                  
-                  // Debug certificatePath for first investment
-                  if (investments.indexOf(investment) === 0) {
-                    console.log('📄 Certificate Path Debug:', {
-                      investmentId: investment.id || investment.displayCode,
-                      certificatePath: investment.certificatePath,
-                      certificate_path: investment.certificate_path,
-                      mappedCertificatePath: mappedInvestment.certificatePath,
-                      fullCertificateUrl: certificateUrl,
-                      willShowButton: !!certificateUrl
-                    });
-                  }
+                  // Calculate ownership percentage
+                  const totalPropertyTokens = investment.property?.totalTokens || investment.property?.total_tokens || 100000;
+                  const ownershipPercent = totalPropertyTokens > 0 
+                    ? (tokens_bought / totalPropertyTokens) * 100 
+                    : 0;
 
                   const statusInfo = getStatusBadge(mappedInvestment.status);
                   const StatusIcon = statusInfo.icon;
 
                   return (
-                    <tr key={investment.id} className="hover:bg-accent">
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-                            <TrendingUp className="w-5 h-5 text-muted-foreground" />
-                          </div>
-                        </div>
-                        <div className="ml-3 min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            {certificateUrl ? (
-                              <button
-                                onClick={() => window.open(certificateUrl, '_blank')}
-                                className="text-sm font-medium text-card-foreground hover:text-primary-600 hover:underline cursor-pointer transition-colors"
-                                title="Click to view certificate PDF"
-                              >
-                                {investment.displayCode || investment.id?.slice(0, 8) + '...'}
-                              </button>
-                            ) : (
-                              <div className="text-sm font-medium text-card-foreground">
-                                {investment.displayCode || investment.id?.slice(0, 8) + '...'}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Investment
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-8 w-8">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                            <User className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        </div>
-                        <div className="ml-2 min-w-0">
-                          <div className="text-sm font-medium text-card-foreground truncate">
+                    <tr key={investment.id} className="hover:bg-accent/50 transition-colors duration-200 border-b border-border/30">
+                      {/* Investor Column - 2 lines */}
+                      <td className="px-4 py-4">
+                        <div>
+                          <p className="text-sm font-semibold text-card-foreground">
                             {mappedInvestment.user_name}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[14rem]">
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {mappedInvestment.user_email}
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* Property Column - 2 lines */}
+                      <td className="px-4 py-4">
+                        <div className="flex items-start gap-2">
+                          <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-sm font-medium text-card-foreground">
+                              {mappedInvestment.property_title}
+                            </p>
+                            <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                              {investment.property?.displayCode || investment.displayCode || '—'}
+                            </p>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-card-foreground truncate">
-                            {mappedInvestment.property_title}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[14rem]">
-                            {investment.property?.displayCode || investment.property?.slug || ''}
+                      </td>
+
+                      {/* Investment Column - 2 lines: amount + date */}
+                      <td className="px-1 py-4">
+                        <div>
+                          <p 
+                            className="text-base font-bold tracking-tight cursor-help"
+                            title={formatFullPrice(mappedInvestment.amount_invested, '$')}
+                          >
+                            {formatExactPrice(mappedInvestment.amount_invested, '$')}
+                          </p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <Calendar className="w-3 h-3 text-muted-foreground" />
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(mappedInvestment.created_at).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-card-foreground">
-                      {formatPrice(mappedInvestment.amount_invested, 'USDT')}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-card-foreground">
-                      <div className="flex items-center">
-                        <span className="font-medium">
-                          {parseFloat(mappedInvestment.tokens_bought || 0).toLocaleString(undefined, {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 2
-                          })}
-                        </span>
-                        {mappedInvestment.tokens_bought > 0 && (
-                          <span className="ml-1 text-xs text-muted-foreground">tokens</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <Badge variant={statusInfo.variant} className="flex items-center text-[10px] px-2 py-0.5">
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {statusInfo.text}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
-                      <div className="flex items-center">
-                        <Calendar className="w-3 h-3 mr-2 text-muted-foreground" />
-                        {formatDate(mappedInvestment.created_at)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center space-x-2">
-                        <Button variant="outline" size="sm" className="h-7 w-7 p-0">
-                          <Eye className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+                      </td>
+
+                      {/* Ownership Column - 2 lines: tokens + percentage */}
+                      <td className="px-4 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-card-foreground">
+                            {tokens_bought.toLocaleString(undefined, {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 2
+                            })}{' '}
+                            <span className="text-xs text-muted-foreground font-normal">tokens</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {ownershipPercent >= 0.01 ? ownershipPercent.toFixed(2) : '< 0.01'}% ownership
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* Status Column */}
+                      <td className="px-4 py-4">
+                        <Badge variant={statusInfo.variant} className="flex items-center w-fit text-xs px-3 py-1">
+                          <StatusIcon className="w-3 h-3 mr-1.5" />
+                          {statusInfo.text}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
         {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="bg-card px-4 py-3 flex items-center justify-between border-t border-border sm:px-6">
+        {totalPages > 1 && (
+          <div className="bg-card/50 backdrop-blur-sm px-4 py-3 flex items-center justify-between border-t border-border/50 sm:px-6">
             <div className="flex-1 flex justify-between sm:hidden">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={!pagination.hasPrev}
+              <button
+                onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 text-sm font-medium text-foreground bg-background/50 border border-border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/50"
               >
                 Previous
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, pagination.totalPages))}
-                disabled={!pagination.hasNext}
+              </button>
+              <button
+                onClick={() => setCurrentPage(Math.min(currentPage + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 text-sm font-medium text-foreground bg-background/50 border border-border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/50"
               >
                 Next
-              </Button>
+              </button>
             </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-foreground">
+            
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between gap-4">
+              <div className="flex-shrink-0">
+                <p className="text-sm text-foreground whitespace-nowrap">
                   Showing{' '}
                   <span className="font-medium">
-                    {((currentPage - 1) * 10) + 1}
+                    {totalFiltered === 0 ? 0 : ((currentPage - 1) * itemsPerPageTable) + 1}
                   </span>{' '}
                   to{' '}
                   <span className="font-medium">
-                    {Math.min(currentPage * 10, pagination.totalInvestments)}
+                    {Math.min(currentPage * itemsPerPageTable, totalFiltered)}
                   </span>{' '}
                   of{' '}
-                  <span className="font-medium">{pagination.totalInvestments}</span>{' '}
+                  <span className="font-medium">{totalFiltered}</span>{' '}
                   results
                 </p>
               </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                  {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
+              
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2 flex-1 justify-center">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
+                    disabled={currentPage === 1}
+                    className={cn(
+                      "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
+                      "disabled:opacity-50 disabled:cursor-not-allowed",
+                      currentPage > 1
+                        ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                        : "bg-background/30 border-border/50 text-muted-foreground"
+                    )}
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                    {(() => {
+                      const maxPages = 10;
+                      const current = currentPage;
+                      let startPage = Math.max(1, current - Math.floor(maxPages / 2));
+                      let endPage = Math.min(totalPages, startPage + maxPages - 1);
+                      
+                      if (endPage - startPage < maxPages - 1) {
+                        startPage = Math.max(1, endPage - maxPages + 1);
+                      }
+                      
+                      const pageNumbers = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
+                      
+                      return (
+                        <>
+                          {startPage > 1 && (
+                            <>
+                              <button
+                                onClick={() => setCurrentPage(1)}
+                                className={cn(
+                                  "relative inline-flex items-center px-3 py-2 border text-sm font-medium transition-colors",
+                                  "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                                )}
+                              >
+                                1
+                              </button>
+                              {startPage > 2 && (
+                                <span className="relative inline-flex items-center px-3 py-2 border border-border bg-background/50 text-sm text-muted-foreground">
+                                  ...
+                                </span>
+                              )}
+                            </>
+                          )}
+                          
+                          {pageNumbers.map((page) => (
+                            <button
+                              key={page}
+                              onClick={() => setCurrentPage(page)}
+                              className={cn(
+                                "relative inline-flex items-center px-3 py-2 border text-sm font-medium transition-colors",
+                                page === currentPage
+                                  ? "z-10 bg-primary/20 border-primary text-primary font-semibold"
+                                  : "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                              )}
+                            >
+                              {page}
+                            </button>
+                          ))}
+                          
+                          {endPage < totalPages && (
+                            <>
+                              {endPage < totalPages - 1 && (
+                                <span className="relative inline-flex items-center px-3 py-2 border border-border bg-background/50 text-sm text-muted-foreground">
+                                  ...
+                                </span>
+                              )}
+                              <button
+                                onClick={() => setCurrentPage(totalPages)}
+                                className={cn(
+                                  "relative inline-flex items-center px-3 py-2 border text-sm font-medium transition-colors",
+                                  totalPages === currentPage
+                                    ? "z-10 bg-primary/20 border-primary text-primary font-semibold"
+                                    : "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                                )}
+                              >
+                                {totalPages}
+                              </button>
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </nav>
+                  
+                  <button
+                    onClick={() => setCurrentPage(Math.min(currentPage + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className={cn(
+                      "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
+                      "disabled:opacity-50 disabled:cursor-not-allowed",
+                      currentPage < totalPages
+                        ? "bg-background/50 border-border text-foreground hover:bg-accent/50"
+                        : "bg-background/30 border-border/50 text-muted-foreground"
+                    )}
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">Go to:</span>
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const input = e.target.querySelector('input');
+                      const page = parseInt(input.value, 10);
+                      if (page >= 1 && page <= totalPages) {
+                        setCurrentPage(page);
+                        input.value = '';
+                      }
+                    }} 
+                    className="flex items-center gap-1"
+                  >
+                    <input
+                      type="text"
+                      placeholder={currentPage.toString()}
+                      className="w-16 px-2 py-1 text-sm text-center border border-border rounded bg-background/50 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                      maxLength={4}
+                      pattern="[0-9]*"
+                    />
                     <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                        page === currentPage
-                          ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                          : 'bg-card border-input text-muted-foreground hover:bg-accent'
-                      }`}
+                      type="submit"
+                      className="px-3 py-1 text-sm font-medium bg-primary/20 text-primary border border-primary/50 rounded hover:bg-primary/30 transition-colors"
+                      title="Jump to page"
                     >
-                      {page}
+                      Go
                     </button>
-                  ))}
-                </nav>
-              </div>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         )}
