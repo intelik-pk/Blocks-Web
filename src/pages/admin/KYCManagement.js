@@ -13,6 +13,7 @@ import {
   X,
   Mail,
   Zap,
+  FileCheck,
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -41,6 +42,8 @@ const KYCManagement = () => {
   const [showBulkActionModal, setShowBulkActionModal] = useState(false);
   const [bulkAction, setBulkAction] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedUserGroup, setSelectedUserGroup] = useState(null);
   
   // Auto-approve state - load from localStorage
   const [autoApproveEnabled, setAutoApproveEnabled] = useState(() => {
@@ -349,6 +352,94 @@ const KYCManagement = () => {
         status: 'rejected',
         rejectionReason: reason || 'Rejected by admin'
       });
+    }
+  };
+
+  // Handle review - show all documents for a user
+  const handleReview = (group) => {
+    setSelectedUserGroup(group);
+    setShowReviewModal(true);
+  };
+
+  // Get all documents for a user group
+  const getAllUserDocuments = (group) => {
+    const documents = {
+      front: null,
+      back: null,
+      selfie: null
+    };
+    
+    group.documents.forEach(kyc => {
+      if (kyc.documentFrontUrl) documents.front = kyc.documentFrontUrl;
+      if (kyc.documentBackUrl) documents.back = kyc.documentBackUrl;
+      if (kyc.selfieUrl) documents.selfie = kyc.selfieUrl;
+    });
+    
+    return documents;
+  };
+
+  // Approve all pending KYC records for a user
+  const handleApproveFromReview = (group) => {
+    const pendingKYCs = group.documents.filter(d => d.status === 'pending');
+    if (pendingKYCs.length === 0) {
+      alert('No pending KYC records to approve for this user.');
+      return;
+    }
+    
+    if (window.confirm(`Approve ${pendingKYCs.length} pending KYC verification(s) for this user?`)) {
+      // Approve all pending records
+      const approvePromises = pendingKYCs.map(kyc => 
+        adminAPI.updateKYCStatus(kyc.id, {
+          status: 'verified',
+          rejectionReason: null,
+          reviewer: 'admin@hmr.com'
+        })
+      );
+      
+      Promise.all(approvePromises)
+        .then(() => {
+          queryClient.invalidateQueries(['all-kyc']);
+          setShowReviewModal(false);
+          setSelectedUserGroup(null);
+          alert(`✅ Successfully approved ${pendingKYCs.length} KYC verification(s).`);
+        })
+        .catch((error) => {
+          console.error('Failed to approve KYCs:', error);
+          alert(`❌ Failed to approve some KYC verifications: ${error.message}`);
+        });
+    }
+  };
+
+  // Reject all pending KYC records for a user
+  const handleRejectFromReview = (group) => {
+    const pendingKYCs = group.documents.filter(d => d.status === 'pending');
+    if (pendingKYCs.length === 0) {
+      alert('No pending KYC records to reject for this user.');
+      return;
+    }
+    
+    const reason = window.prompt('Enter rejection reason:', '');
+    if (reason !== null) {
+      // Reject all pending records
+      const rejectPromises = pendingKYCs.map(kyc => 
+        adminAPI.updateKYCStatus(kyc.id, {
+          status: 'rejected',
+          rejectionReason: reason || 'Rejected by admin',
+          reviewer: 'admin@hmr.com'
+        })
+      );
+      
+      Promise.all(rejectPromises)
+        .then(() => {
+          queryClient.invalidateQueries(['all-kyc']);
+          setShowReviewModal(false);
+          setSelectedUserGroup(null);
+          alert(`✅ Successfully rejected ${pendingKYCs.length} KYC verification(s).`);
+        })
+        .catch((error) => {
+          console.error('Failed to reject KYCs:', error);
+          alert(`❌ Failed to reject some KYC verifications: ${error.message}`);
+        });
     }
   };
 
@@ -683,17 +774,16 @@ const KYCManagement = () => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
-                            {getDocumentUrl(kyc) && (
+                            {/* Review Button - Show for first document of each user group */}
+                            {group.documents[0]?.id === kyc.id && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  setSelectedKYC(kyc);
-                                  setShowDocumentModal(true);
-                                }}
-                                title="View Document"
+                                onClick={() => handleReview(group)}
+                                className="text-blue-600 hover:bg-blue-50"
+                                title="Review All Documents"
                               >
-                                <Eye className="h-4 w-4" />
+                                <FileCheck className="h-4 w-4" />
                               </Button>
                             )}
                             {kyc.status !== 'verified' && (
@@ -914,6 +1004,219 @@ const KYCManagement = () => {
                     Reject
                   </Button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal - Show all KYC documents for a user */}
+      {showReviewModal && selectedUserGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-card rounded-lg max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-border">
+            {/* Sticky Header */}
+            <div className="sticky top-0 z-10 bg-card border-b border-border px-6 py-4 flex justify-between items-center shadow-sm">
+              <div>
+                <h2 className="text-2xl font-bold text-card-foreground">Review KYC Documents</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {selectedUserGroup.user?.name || selectedUserGroup.user?.displayCode || selectedUserGroup.userId}
+                  {selectedUserGroup.user?.email && ` - ${selectedUserGroup.user.email}`}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setSelectedUserGroup(null);
+                }}
+                className="text-muted-foreground hover:text-card-foreground transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="px-6 py-6 space-y-6">
+              {/* User Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">User Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">User ID</p>
+                    <p className="font-medium text-card-foreground">{selectedUserGroup.userId}</p>
+                  </div>
+                  {selectedUserGroup.user?.name && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Name</p>
+                      <p className="font-medium text-card-foreground">{selectedUserGroup.user.name}</p>
+                    </div>
+                  )}
+                  {selectedUserGroup.user?.email && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Email</p>
+                      <p className="font-medium text-card-foreground">{selectedUserGroup.user.email}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm text-muted-foreground">Overall Status</p>
+                    {getStatusBadge(selectedUserGroup.overallStatus)}
+                  </div>
+                </div>
+              </div>
+
+              {/* All KYC Documents */}
+              <div>
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">Submitted Documents</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Front Document */}
+                  {(() => {
+                    const allDocs = getAllUserDocuments(selectedUserGroup);
+                    return (
+                      <>
+                        {allDocs.front && (
+                          <div className="border border-border rounded-lg p-4">
+                            <p className="text-sm font-medium text-card-foreground mb-2">Front of ID</p>
+                            <img
+                              src={getDocumentUrl({ documentFrontUrl: allDocs.front })}
+                              alt="Document Front"
+                              className="w-full h-64 object-contain rounded-lg mb-2 cursor-pointer hover:opacity-80 bg-gray-50"
+                              onClick={() => window.open(getDocumentUrl({ documentFrontUrl: allDocs.front }), '_blank')}
+                              onError={(e) => {
+                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3EImage not available%3C/text%3E%3C/svg%3E';
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(getDocumentUrl({ documentFrontUrl: allDocs.front }), '_blank')}
+                              className="w-full"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Full Size
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Back Document */}
+                        {allDocs.back && (
+                          <div className="border border-border rounded-lg p-4">
+                            <p className="text-sm font-medium text-card-foreground mb-2">Back of ID</p>
+                            <img
+                              src={getDocumentUrl({ documentBackUrl: allDocs.back })}
+                              alt="Document Back"
+                              className="w-full h-64 object-contain rounded-lg mb-2 cursor-pointer hover:opacity-80 bg-gray-50"
+                              onClick={() => window.open(getDocumentUrl({ documentBackUrl: allDocs.back }), '_blank')}
+                              onError={(e) => {
+                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3EImage not available%3C/text%3E%3C/svg%3E';
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(getDocumentUrl({ documentBackUrl: allDocs.back }), '_blank')}
+                              className="w-full"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Full Size
+                            </Button>
+                          </div>
+                        )}
+
+                        {/* Selfie */}
+                        {allDocs.selfie && (
+                          <div className="border border-border rounded-lg p-4">
+                            <p className="text-sm font-medium text-card-foreground mb-2">Selfie Photo</p>
+                            <img
+                              src={getDocumentUrl({ selfieUrl: allDocs.selfie })}
+                              alt="Selfie"
+                              className="w-full h-64 object-contain rounded-lg mb-2 cursor-pointer hover:opacity-80 bg-gray-50"
+                              onClick={() => window.open(getDocumentUrl({ selfieUrl: allDocs.selfie }), '_blank')}
+                              onError={(e) => {
+                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect fill="%23f3f4f6" width="400" height="300"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3EImage not available%3C/text%3E%3C/svg%3E';
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(getDocumentUrl({ selfieUrl: allDocs.selfie }), '_blank')}
+                              className="w-full"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Full Size
+                            </Button>
+                          </div>
+                        )}
+
+                        {!allDocs.front && !allDocs.back && !allDocs.selfie && (
+                          <div className="col-span-3 text-center py-8 text-muted-foreground">
+                            <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                            <p>No document images available for this user</p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* KYC Records Summary */}
+              <div>
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">KYC Records</h3>
+                <div className="space-y-2">
+                  {selectedUserGroup.documents.map((kyc) => {
+                    const TypeIcon = getTypeIcon(kyc.type);
+                    return (
+                      <div key={kyc.id} className="border border-border rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <TypeIcon className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                              <p className="font-medium text-card-foreground">{getTypeLabel(kyc.type)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Submitted: {formatDate(kyc.submittedAt || kyc.createdAt)}
+                              </p>
+                            </div>
+                          </div>
+                          {getStatusBadge(kyc.status)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t border-border">
+                {selectedUserGroup.overallStatus !== 'verified' && (
+                  <Button
+                    onClick={() => handleApproveFromReview(selectedUserGroup)}
+                    disabled={updateKYCStatusMutation.isLoading}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve All Pending
+                  </Button>
+                )}
+                {selectedUserGroup.overallStatus !== 'rejected' && (
+                  <Button
+                    onClick={() => handleRejectFromReview(selectedUserGroup)}
+                    disabled={updateKYCStatusMutation.isLoading}
+                    variant="outline"
+                    className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject All Pending
+                  </Button>
+                )}
+                <Button
+                  onClick={() => {
+                    setShowReviewModal(false);
+                    setSelectedUserGroup(null);
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Close
+                </Button>
               </div>
             </div>
           </div>
