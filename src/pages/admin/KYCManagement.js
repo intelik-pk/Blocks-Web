@@ -918,7 +918,7 @@ const KYCManagement = ({ initialUserId }) => {
             >
               Clear Filters
             </Button>
-          </div>
+          )}
         </form>
       </Card>
 
