@@ -786,19 +786,6 @@ const KYCManagement = () => {
                                 <FileCheck className="h-4 w-4" />
                               </Button>
                             )}
-                            {getDocumentUrl(kyc) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedKYC(kyc);
-                                  setShowDocumentModal(true);
-                                }}
-                                title="View Document"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            )}
                             {kyc.status !== 'verified' && (
                               <Button
                                 variant="outline"
