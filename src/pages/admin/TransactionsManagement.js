@@ -1,24 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { 
-  Search, 
-  Filter, 
   DollarSign,
   TrendingUp,
   TrendingDown,
   Clock,
-  CheckCircle,
   XCircle,
-  Calendar,
-  User,
-  Building2
+  Award
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
 import { adminAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
+import TransactionTabs from '../../components/transactions/TransactionTabs';
+import TransactionFilters from '../../components/transactions/TransactionFilters';
+import TransactionTable from '../../components/transactions/TransactionTable';
 
 const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
   const { isAuthenticated } = useAdminAuth();
@@ -27,7 +24,6 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     search: initialFilters?.search || '',
     status: initialFilters?.status || '',
     transaction_type: initialFilters?.transaction_type || '',
-    property: initialFilters?.property || '',
     sort_by: 'created_at',
     sort_order: 'desc'
   });
@@ -43,6 +39,7 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     }
   }, [initialFilters, onFiltersSet]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [activeTab, setActiveTab] = useState('all');
 
   // Fetch transactions
   const { data: transactionsData, isLoading, error } = useQuery(
@@ -67,42 +64,206 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
                           transactionsData?.data || 
                           (Array.isArray(transactionsData) ? transactionsData : []);
 
-  // Get unique properties from transactions for filter dropdown
-  const uniqueProperties = useMemo(() => {
-    const propertySet = new Set();
-    allTransactions.forEach(transaction => {
-      const propertyTitle = transaction.property?.title || transaction.property_title;
-      if (propertyTitle) {
-        propertySet.add(propertyTitle);
+  // Analyze backend response structure to detect available fields
+  const backendFields = useMemo(() => {
+    if (allTransactions.length === 0) {
+      return {
+        hasDate: false,
+        hasDisplayCode: false,
+        hasTransactionType: false,
+        hasFromTo: false,
+        hasStatus: false,
+        hasAmount: false,
+        hasEndBalance: false
+      };
+    }
+
+    // Sample first transaction to detect available fields
+    const sample = allTransactions[0];
+    console.log('Transaction API response sample:', sample);
+
+    // Helper to check if any field exists
+    const hasAnyField = (fields) => {
+      return fields.some(field => {
+        if (field.includes('?.') || field.includes('.')) {
+          const parts = field.split(/[?.]/);
+          let value = sample;
+          for (const part of parts) {
+            if (value && typeof value === 'object' && part in value) {
+              value = value[part];
+            } else {
+              return false;
+            }
+          }
+          return value !== null && value !== undefined;
+        }
+        const value = sample[field];
+        // Check if value exists and is not null/undefined
+        // Also check if it's an object with properties (for user objects)
+        if (value !== null && value !== undefined) {
+          if (typeof value === 'object' && !Array.isArray(value)) {
+            // For objects like 'user', check if it has any meaningful properties
+            return Object.keys(value).length > 0;
+          }
+          return true;
+        }
+        return false;
+      });
+    };
+
+    return {
+      hasDate: hasAnyField(['createdAt', 'created_at', 'date', 'timestamp']),
+      hasDisplayCode: hasAnyField(['displayCode', 'display_code', 'code', 'transactionCode']),
+      hasTransactionType: hasAnyField(['transactionType', 'transaction_type', 'type', 'method']),
+      hasFromTo: hasAnyField([
+        'sender', 'from', 'user', 'buyer', 'email',
+        'receiver', 'to', 'seller', 'walletAddress'
+      ]),
+      hasStatus: hasAnyField(['status']),
+      hasAmount: hasAnyField(['amount', 'amountUSDT', 'amount_in_pkr', 'amount_in_usdt']),
+      hasEndBalance: hasAnyField([
+        'balanceAfter', 'endingBalance', 'walletBalance', 'balance', 'finalBalance', 'balance_after'
+      ])
+    };
+  }, [allTransactions]);
+
+  // Helper function to get field from transaction (backend-aware)
+  const getField = (transaction, ...fieldNames) => {
+    for (const field of fieldNames) {
+      // Handle nested fields like 'user?.fullName'
+      if (field.includes('?.') || field.includes('.')) {
+        const parts = field.split(/[?.]/);
+        let value = transaction;
+        for (const part of parts) {
+          if (value && typeof value === 'object' && part in value) {
+            value = value[part];
+          } else {
+            value = null;
+            break;
+          }
+        }
+        if (value !== null && value !== undefined) {
+          return value;
+        }
+      } else if (transaction[field] !== undefined && transaction[field] !== null) {
+        return transaction[field];
+      }
+    }
+    return null;
+  };
+
+  // Tab-based filtering (backend-aware)
+  const tabFilteredTransactions = useMemo(() => {
+    if (activeTab === 'all') return allTransactions;
+    
+    return allTransactions.filter(transaction => {
+      // Get transaction type (try multiple field names)
+      const transactionType = getField(
+        transaction,
+        'transactionType',
+        'transaction_type',
+        'type',
+        'method'
+      )?.toLowerCase() || '';
+      
+      // Get status (try multiple field names)
+      const status = getField(
+        transaction,
+        'status'
+      )?.toLowerCase() || '';
+
+      switch (activeTab) {
+        case 'invested':
+          // Money invested = investment transactions (only if backend provides this field)
+          return transactionType === 'investment' || 
+                 transactionType === 'invested' || 
+                 transactionType === 'invest' ||
+                 (transaction.category && transaction.category.toLowerCase().includes('investment')) ||
+                 (transaction.category && transaction.category.toLowerCase().includes('invest'));
+        case 'received':
+          // Money received = deposits (only if backend provides this field)
+          return transactionType === 'deposit' || transactionType === 'received';
+        case 'topup':
+          // Top up = deposits (only if backend provides this field)
+          return transactionType === 'deposit' || transactionType === 'topup' || transactionType === 'top_up';
+        case 'rewards':
+          // Rewards = reward transactions (only if backend provides this field)
+          return transactionType === 'reward' || 
+                 transactionType === 'rewards' ||
+                 (transaction.category && transaction.category.toLowerCase().includes('reward')) ||
+                 (transaction.description && transaction.description.toLowerCase().includes('reward'));
+        default:
+          return true;
       }
     });
-    return Array.from(propertySet).sort();
-  }, [allTransactions]);
-  
-  // Frontend filtering logic
+  }, [allTransactions, activeTab]);
+
+  // Frontend filtering logic (applied after tab filtering)
   const filteredTransactions = useMemo(() => {
-    let filtered = [...allTransactions];
+    let filtered = [...tabFilteredTransactions];
     
-    // Search filter
+    // Search filter - only transaction ID, display code, and investor name
     if (filters.search && filters.search.trim()) {
-      const searchLower = filters.search.toLowerCase();
+      const searchLower = filters.search.toLowerCase().trim();
       filtered = filtered.filter(transaction => {
-        const id = (transaction.id || '').toLowerCase();
-        const description = (transaction.description || '').toLowerCase();
-        const userName = (transaction.user_name || '').toLowerCase();
-        const userEmail = (transaction.user_email || '').toLowerCase();
+        // Transaction ID - try multiple field names
+        const id = getField(transaction, 'id', '_id', 'transactionId', 'transaction_id');
+        const idStr = id ? String(id).toLowerCase() : '';
         
-        return id.includes(searchLower) ||
-               description.includes(searchLower) ||
-               userName.includes(searchLower) ||
-               userEmail.includes(searchLower);
+        // Display Code - try multiple field names using getField
+        const displayCode = getField(transaction, 'displayCode', 'display_code', 'code', 'transactionCode');
+        const displayCodeStr = displayCode ? String(displayCode).toLowerCase() : '';
+        
+        // Investor name (user name) - comprehensive search
+        let userName = '';
+        
+        // First, try to get user object or user name directly
+        const userObj = transaction.user;
+        if (userObj && typeof userObj === 'object' && userObj !== null) {
+          // Extract name from user object
+          userName = userObj.fullName || 
+                     userObj.full_name || 
+                     userObj.name || 
+                     userObj.username || 
+                     userObj.email ||
+                     '';
+        }
+        
+        // If no user object, try direct fields
+        if (!userName) {
+          userName = getField(
+            transaction, 
+            'user_name',
+            'userName',
+            'sender',
+            'from',
+            'buyer',
+            'sender_name',
+            'from_name',
+            'user?.fullName', 
+            'user?.full_name',
+            'user?.name', 
+            'user?.username',
+            'user?.email'
+          ) || '';
+        }
+        
+        // Convert to string and lowercase
+        const userNameStr = userName ? String(userName).toLowerCase() : '';
+        
+        // Check if search term matches any of the fields (non-empty strings only)
+        const matchesId = idStr && idStr.includes(searchLower);
+        const matchesDisplayCode = displayCodeStr && displayCodeStr.includes(searchLower);
+        const matchesUserName = userNameStr && userNameStr.includes(searchLower);
+        
+        return matchesId || matchesDisplayCode || matchesUserName;
       });
     }
     
     // Status filter
     if (filters.status && filters.status.trim()) {
       filtered = filtered.filter(transaction => {
-        const transactionStatus = (transaction.status || '').toLowerCase();
+        const transactionStatus = getField(transaction, 'status')?.toLowerCase() || '';
         const filterStatus = filters.status.toLowerCase();
         return transactionStatus === filterStatus;
       });
@@ -111,18 +272,15 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     // Transaction type filter
     if (filters.transaction_type && filters.transaction_type.trim()) {
       filtered = filtered.filter(transaction => {
-        const transactionType = (transaction.transaction_type || '').toLowerCase();
+        const transactionType = getField(
+          transaction,
+          'transactionType',
+          'transaction_type',
+          'type',
+          'method'
+        )?.toLowerCase() || '';
         const filterType = filters.transaction_type.toLowerCase();
         return transactionType === filterType;
-      });
-    }
-    
-    // Property filter
-    if (filters.property && filters.property.trim()) {
-      filtered = filtered.filter(transaction => {
-        const propertyTitle = (transaction.property?.title || transaction.property_title || '').toLowerCase();
-        const filterProperty = filters.property.toLowerCase();
-        return propertyTitle.includes(filterProperty);
       });
     }
     
@@ -133,17 +291,17 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
         
         switch (filters.sort_by) {
           case 'amount_in_pkr':
-            aValue = parseFloat(a.amount_in_pkr || 0);
-            bValue = parseFloat(b.amount_in_pkr || 0);
+            aValue = parseFloat(getField(a, 'amount', 'amountUSDT', 'amount_in_pkr', 'amount_in_usdt') || 0);
+            bValue = parseFloat(getField(b, 'amount', 'amountUSDT', 'amount_in_pkr', 'amount_in_usdt') || 0);
             break;
           case 'status':
-            aValue = (a.status || '').toLowerCase();
-            bValue = (b.status || '').toLowerCase();
+            aValue = (getField(a, 'status') || '').toLowerCase();
+            bValue = (getField(b, 'status') || '').toLowerCase();
             break;
           case 'created_at':
           default:
-            aValue = new Date(a.created_at || 0);
-            bValue = new Date(b.created_at || 0);
+            aValue = new Date(getField(a, 'createdAt', 'created_at', 'date') || 0);
+            bValue = new Date(getField(b, 'createdAt', 'created_at', 'date') || 0);
             break;
         }
         
@@ -156,38 +314,58 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     }
     
     return filtered;
-  }, [allTransactions, filters]);
+  }, [tabFilteredTransactions, filters]);
   
-  // Use filtered transactions instead of raw transactions
-  const transactions = filteredTransactions;
+  // Pagination - 20 items per page
+  const itemsPerPage = 20;
+  const totalFiltered = filteredTransactions.length;
+  const totalPages = Math.ceil(totalFiltered / itemsPerPage);
   
-  const pagination = transactionsData?.data?.data?.pagination || 
-                     transactionsData?.data?.pagination || 
-                     {
-                       totalPages: 1,
-                       currentPage: 1,
-                       totalTransactions: transactions.length,
-                       hasPrev: false,
-                       hasNext: false
-                     };
+  // Get paginated transactions
+  const paginatedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredTransactions.slice(startIndex, endIndex);
+  }, [filteredTransactions, currentPage, itemsPerPage]);
+  
+  // Use paginated transactions
+  const transactions = paginatedTransactions;
+  
+  // Update pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.search, filters.status, filters.transaction_type, activeTab]);
+  
+  const pagination = {
+    totalPages: totalPages,
+    currentPage: currentPage,
+    totalTransactions: totalFiltered,
+    hasPrev: currentPage > 1,
+    hasNext: currentPage < totalPages
+  };
 
   // Calculate summary statistics from ALL transactions (not filtered)
   const summary = useMemo(() => {
     const stats = {
       totalDeposits: 0,
       totalWithdrawals: 0,
-      pendingCount: 0,
+      rewardsCount: 0,
       netVolume: 0
     };
     
     allTransactions.forEach(tx => {
       const amount = parseFloat(tx.amountUSDT || tx.amount_in_pkr || tx.amount || 0);
-      const type = (tx.transaction_type || tx.type || '').toLowerCase();
+      const type = (tx.transaction_type || tx.transactionType || tx.type || '').toLowerCase();
       const status = (tx.status || '').toLowerCase();
+      const category = (tx.category || tx.transactionCategory || '').toLowerCase();
+      const description = (tx.description || '').toLowerCase();
       
-      // Count pending
-      if (status === 'pending') {
-        stats.pendingCount++;
+      // Count rewards
+      if (type === 'reward' || 
+          type === 'rewards' ||
+          category.includes('reward') ||
+          description.includes('reward')) {
+        stats.rewardsCount++;
       }
       
       // Sum deposits and withdrawals (only completed)
@@ -213,28 +391,25 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
     pagination: pagination,
     summary: summary
   });
+  
+  // Debug: Log sample transaction structure for search debugging
+  if (allTransactions.length > 0 && filters.search) {
+    const sample = allTransactions[0];
+    console.log('🔍 Search Debug - Sample Transaction:', {
+      searchTerm: filters.search,
+      transactionId: sample.id || sample._id,
+      displayCode: sample.displayCode || sample.display_code || sample.code,
+      user: sample.user,
+      user_name: sample.user_name,
+      sender: sample.sender,
+      from: sample.from,
+      fullTransaction: sample
+    });
+  }
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
     // No need to reset currentPage since we're using frontend filtering
-  };
-
-  const getStatusBadge = (status) => {
-    const statusMap = {
-      'pending': { variant: 'warning', text: 'Pending', icon: Clock },
-      'completed': { variant: 'success', text: 'Completed', icon: CheckCircle },
-      'failed': { variant: 'danger', text: 'Failed', icon: XCircle },
-      'cancelled': { variant: 'default', text: 'Cancelled', icon: XCircle }
-    };
-    return statusMap[status] || { variant: 'default', text: status, icon: Clock };
-  };
-
-  const getTransactionTypeIcon = (type) => {
-    return type === 'deposit' ? TrendingUp : TrendingDown;
-  };
-
-  const getTransactionTypeColor = (type) => {
-    return type === 'deposit' ? 'text-green-600' : 'text-red-600';
   };
 
   const formatPrice = (amount, currency = 'USD') => {
@@ -247,14 +422,6 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
       return `${currency} ${(num / 1000).toFixed(0)}K`;
     }
     return `${currency} ${num.toFixed(0)}`;
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const month = date.getMonth() + 1; // getMonth() returns 0-11
-    const day = date.getDate();
-    const year = date.getFullYear().toString().slice(-2); // Last 2 digits of year
-    return `${month}/${day}/${year}`;
   };
 
   if (!isAuthenticated) {
@@ -307,10 +474,10 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6">
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
           <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-green-600" />
+            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Total Deposits</p>
@@ -321,10 +488,10 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
           <div className="flex items-center">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <TrendingDown className="w-6 h-6 text-red-600" />
+            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+              <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Total Withdrawals</p>
@@ -335,24 +502,24 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
           <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
+            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+              <Award className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-muted-foreground">Pending</p>
+              <p className="text-sm font-medium text-muted-foreground">Rewards</p>
               <p className="text-2xl font-bold text-card-foreground">
-                {summary.pendingCount}
+                {summary.rewardsCount}
               </p>
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-6 bg-background/50 backdrop-blur-sm border-border/50 shadow-lg">
           <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <DollarSign className="w-6 h-6 text-blue-600" />
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <DollarSign className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-muted-foreground">Net Volume</p>
@@ -365,275 +532,26 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
       </div>
 
       {/* Filters */}
-      <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Search</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search transactions..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                  }
-                }}
-                className="w-full pl-10 pr-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-              />
-            </div>
-          </div>
+      <TransactionFilters
+        filters={filters}
+        onFilterChange={handleFilterChange}
+      />
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Type</label>
-            <select
-              value={filters.transaction_type}
-              onChange={(e) => handleFilterChange('transaction_type', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Types</option>
-              <option value="deposit">Deposit</option>
-              <option value="withdrawal">Withdrawal</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Property</label>
-            <select
-              value={filters.property}
-              onChange={(e) => handleFilterChange('property', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="">All Properties</option>
-              {uniqueProperties.map((propertyTitle) => (
-                <option key={propertyTitle} value={propertyTitle}>
-                  {propertyTitle}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Sort By</label>
-            <select
-              value={filters.sort_by}
-              onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="created_at">Date</option>
-              <option value="amount_in_pkr">Amount</option>
-              <option value="status">Status</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Order</label>
-            <select
-              value={filters.sort_order}
-              onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="desc">Descending ↓</option>
-              <option value="asc">Ascending ↑</option>
-            </select>
-          </div>
-        </div>
-      </Card>
+      {/* Tabs */}
+      <TransactionTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        rewardsCount={summary.rewardsCount}
+      />
 
       {/* Transactions Table */}
-      <Card className="overflow-hidden">
-        <div>
-          <table className="w-full table-fixed text-sm">
-            <thead className="bg-accent">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[10rem]">
-                  Transaction
-                </th>
-                <th className="pl-6 pr-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[18rem]">
-                  User
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[8rem]">
-                  Type
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[8rem]">
-                  Amount
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[9rem]">
-                  Status
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider w-[10rem]">
-                  Date
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-card divide-y divide-gray-200">
-              {transactions.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-muted-foreground">
-                    <div className="flex flex-col items-center">
-                      <DollarSign className="w-12 h-12 text-muted-foreground mb-4" />
-                      <p className="text-lg font-medium">No transactions found</p>
-                      <p className="text-sm">Transactions will appear here once users make deposits or withdrawals</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((transaction) => {
-                  // Map backend field names to frontend
-                  const mappedTransaction = {
-                    ...transaction,
-                    status: transaction.status || 'completed',
-                    transaction_type: transaction.transactionType || transaction.transaction_type || transaction.type || 'deposit',
-                    amount_in_pkr: transaction.amountUSDT || transaction.amount_in_pkr || transaction.amount || 0,
-                    currency: transaction.currency || 'USDT',
-                    created_at: transaction.createdAt || transaction.created_at,
-                    user_name: transaction.user?.fullName || transaction.user_name || 'Unknown',
-                    user_email: transaction.user?.email || transaction.user_email || '',
-                    description: transaction.description || `${transaction.transactionType || transaction.type || 'Transaction'}`
-                  };
-
-                  const statusInfo = getStatusBadge(mappedTransaction.status);
-                  const TypeIcon = getTransactionTypeIcon(mappedTransaction.transaction_type);
-                const StatusIcon = statusInfo.icon;
-
-                return (
-                  <tr key={transaction.id} className="hover:bg-accent">
-                    <td className="pl-6 pr-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-                            <DollarSign className="w-5 h-5 text-muted-foreground" />
-                          </div>
-                        </div>
-                        <div className="ml-3 min-w-0">
-                          <div className="text-sm font-medium text-card-foreground">
-                            {transaction.displayCode || transaction.id?.slice(0, 8) + '...'}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[20rem]">
-                            {mappedTransaction.description}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-8 w-8">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                            <User className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        </div>
-                        <div className="ml-2 min-w-0">
-                          <div className="text-sm font-medium text-card-foreground truncate">
-                            {mappedTransaction.user_name}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[14rem]">
-                            {mappedTransaction.user_email}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className={`flex items-center text-sm ${getTransactionTypeColor(mappedTransaction.transaction_type)}`}>
-                        <TypeIcon className="w-4 h-4 mr-2" />
-                        <span className="capitalize">{mappedTransaction.transaction_type}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-card-foreground">
-                      {formatPrice(mappedTransaction.amount_in_pkr, mappedTransaction.currency)}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <Badge variant={statusInfo.variant} className="flex items-center text-[10px] px-2 py-0.5">
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {statusInfo.text}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
-                      <div className="flex items-center">
-                        <Calendar className="w-3 h-3 mr-2 text-muted-foreground" />
-                        {formatDate(mappedTransaction.created_at)}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="bg-card px-4 py-3 flex items-center justify-between border-t border-border sm:px-6">
-            <div className="flex-1 flex justify-between sm:hidden">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={!pagination.hasPrev}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, pagination.totalPages))}
-                disabled={!pagination.hasNext}
-              >
-                Next
-              </Button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-foreground">
-                  Showing{' '}
-                  <span className="font-medium">
-                    {((currentPage - 1) * 10) + 1}
-                  </span>{' '}
-                  to{' '}
-                  <span className="font-medium">
-                    {Math.min(currentPage * 10, pagination.totalTransactions)}
-                  </span>{' '}
-                  of{' '}
-                  <span className="font-medium">{pagination.totalTransactions}</span>{' '}
-                  results
-                </p>
-              </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                  {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                        page === currentPage
-                          ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                          : 'bg-card border-input text-muted-foreground hover:bg-accent'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                </nav>
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
+      <TransactionTable
+        transactions={transactions}
+        pagination={pagination}
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+        backendFields={backendFields}
+      />
     </div>
   );
 };
