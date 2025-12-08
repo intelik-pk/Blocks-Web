@@ -1482,7 +1482,9 @@ const AdminDashboard = () => {
       case 'reports':
         return <ReportsManagement />;
       case 'kyc':
-        return <KYCManagement />;
+        const kycUrlParams = new URLSearchParams(window.location.search);
+        const kycUserId = kycUrlParams.get('userId');
+        return <KYCManagement initialUserId={kycUserId} />;
       case 'notifications':
         const urlParams = new URLSearchParams(window.location.search);
         const viewParam = urlParams.get('view');
