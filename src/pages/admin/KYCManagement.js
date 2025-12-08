@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { 
   Search, 
@@ -14,17 +14,22 @@ import {
   Mail,
   Zap,
   FileCheck,
+  Wallet,
+  TrendingUp,
+  DollarSign,
+  Building2,
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
 import { API_BASE_URL } from '../../config/api';
-import { adminAPI } from '../../services/api';
+import { adminAPI, usersAPI, walletTransactionsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
+import { cn } from '../../utils/cn';
 
-const KYCManagement = () => {
+const KYCManagement = ({ initialUserId }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   
@@ -45,6 +50,10 @@ const KYCManagement = () => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedUserGroup, setSelectedUserGroup] = useState(null);
+  
+  // Sidebar panel state
+  const [selectedUserId, setSelectedUserId] = useState(initialUserId || null);
+  const [actionPanel, setActionPanel] = useState(initialUserId ? 'details' : null); // 'details' or null
   
   // Auto-approve state - load from localStorage
   const [autoApproveEnabled, setAutoApproveEnabled] = useState(() => {
@@ -87,6 +96,59 @@ const KYCManagement = () => {
     }
   );
 
+  // Fetch selected user details for sidebar
+  const { data: fullUserData, isLoading: fullUserLoading } = useQuery(
+    ['user-details', selectedUserId],
+    () => usersAPI.getById(selectedUserId),
+    {
+      enabled: Boolean(selectedUserId && actionPanel === 'details'),
+      retry: 1
+    }
+  );
+
+  // Fetch user financial data for sidebar
+  const { data: userFinancialData, isLoading: financialLoading } = useQuery(
+    ['user-financial', selectedUserId],
+    async () => {
+      const [walletResponse, portfolioResponse, transactionsResponse] = await Promise.allSettled([
+        usersAPI.getWalletById(selectedUserId).catch(() => ({ data: null })),
+        fetch(`${API_BASE_URL}/portfolio/user/${selectedUserId}/detailed`).then(r => r.json()).catch(() => null),
+        walletTransactionsAPI.getByUserId(selectedUserId).catch(() => ({ data: [] }))
+      ]);
+      
+      const walletData = walletResponse.status === 'fulfilled' ? walletResponse.value?.data : null;
+      const walletBalance = parseFloat(walletData?.balanceUSDT || walletData?.data?.balanceUSDT || walletData?.balance || walletData?.data?.balance || 0);
+      
+      const portfolioData = portfolioResponse.status === 'fulfilled' ? portfolioResponse.value : null;
+      const investments = portfolioData?.investments || [];
+      const summary = portfolioData?.summary || {};
+      
+      const transactionsData = transactionsResponse.status === 'fulfilled' ? transactionsResponse.value?.data : [];
+      const transactions = Array.isArray(transactionsData) ? transactionsData : 
+                          transactionsData?.data?.transactions || 
+                          transactionsData?.transactions || 
+                          transactionsData?.data || 
+                          [];
+      
+      return {
+        walletBalance,
+        totalInvestments: parseFloat(summary.totalInvestedUSDT || 0),
+        totalReturns: parseFloat(summary.totalRewardsUSDT || 0),
+        totalCurrentValue: parseFloat(summary.totalCurrentValueUSDT || 0),
+        totalNetROI: parseFloat(summary.totalNetROI || 0),
+        activeInvestments: parseInt(summary.activeInvestments || 0),
+        averageROI: parseFloat(summary.averageROI || 0),
+        propertiesInvested: investments.length,
+        investments: investments,
+        transactions: transactions
+      };
+    },
+    {
+      enabled: Boolean(selectedUserId && actionPanel === 'details'),
+      retry: 1
+    }
+  );
+
   // Extract KYC list - each record is a single document type
   const kycList = kycData?.data?.data || 
                   kycData?.data || 
@@ -99,11 +161,14 @@ const KYCManagement = () => {
                    (Array.isArray(usersData?.data) ? usersData.data : []) ||
                    [];
 
-  // Create user lookup map
+  // Create user lookup map (by id and displayCode)
   const userMap = useMemo(() => {
     const map = {};
     usersList.forEach(user => {
       map[user.id] = user;
+      if (user.displayCode) {
+        map[user.displayCode] = user;
+      }
     });
     return map;
   }, [usersList]);
@@ -521,6 +586,111 @@ const KYCManagement = () => {
     });
   };
 
+  const formatPrice = (amount, currency = 'USD') => {
+    const num = parseFloat(amount);
+    if (num >= 1000000000) {
+      return `${currency} ${(num / 1000000000).toFixed(1)}B`;
+    } else if (num >= 1000000) {
+      return `${currency} ${(num / 1000000).toFixed(1)}M`;
+    } else if (num >= 1000) {
+      return `${currency} ${(num / 1000).toFixed(0)}K`;
+    }
+    return `${currency} ${num.toFixed(0)}`;
+  };
+
+  const closeActionPanel = () => {
+    setActionPanel(null);
+    setSelectedUserId(null);
+  };
+
+  // Handle opening user details sidebar
+  const handleOpenUserDetails = (group) => {
+    const userId = group.userId;
+    if (userId) {
+      setSelectedUserId(userId);
+      setActionPanel('details');
+    }
+  };
+
+  // Get selected user's KYC group
+  const selectedUserKYCGroup = useMemo(() => {
+    if (!selectedUserId) return null;
+    // Try to find by userId, displayCode, or id
+    return groupedKYCs.find(g => {
+      const kycUserId = g.userId;
+      const userDisplayCode = g.user?.displayCode;
+      const userId = g.user?.id;
+      
+      return kycUserId === selectedUserId || 
+             userDisplayCode === selectedUserId ||
+             userId === selectedUserId ||
+             String(kycUserId) === String(selectedUserId) ||
+             String(userId) === String(selectedUserId);
+    });
+  }, [selectedUserId, groupedKYCs]);
+
+  // Auto-open user details panel when initialUserId is provided (only once)
+  const hasProcessedInitialUserId = useRef(false);
+  
+  useEffect(() => {
+    // Only process initialUserId once when it's first provided from URL
+    // Don't run if panel is already open (user clicked manually) or if we've already processed it
+    if (initialUserId && !actionPanel && !hasProcessedInitialUserId.current && groupedKYCs.length > 0) {
+      // First, try to find in groupedKYCs (users with KYC records)
+      const matchingGroup = groupedKYCs.find(g => {
+        const kycUserId = g.userId;
+        const userDisplayCode = g.user?.displayCode;
+        const userId = g.user?.id;
+        
+        return kycUserId === initialUserId || 
+               userDisplayCode === initialUserId ||
+               userId === initialUserId ||
+               String(kycUserId) === String(initialUserId);
+      });
+
+      // If found in KYC list, use that userId
+      if (matchingGroup) {
+        setSelectedUserId(matchingGroup.userId);
+        setActionPanel('details');
+        hasProcessedInitialUserId.current = true;
+        
+        // Clean up URL parameter after opening
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.delete('userId');
+        const newUrl = `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`;
+        window.history.replaceState({}, '', newUrl);
+      } else if (usersList.length > 0) {
+        // If not in KYC list, try to find user in usersList by id or displayCode
+        const matchingUser = usersList.find(u => {
+          const userId = u.id;
+          const displayCode = u.displayCode;
+          
+          return userId === initialUserId || 
+                 displayCode === initialUserId ||
+                 String(userId) === String(initialUserId);
+        });
+
+        if (matchingUser) {
+          // Use the user's id (not displayCode) for consistency
+          setSelectedUserId(matchingUser.id || matchingUser.displayCode);
+          setActionPanel('details');
+          hasProcessedInitialUserId.current = true;
+          
+          // Clean up URL parameter after opening
+          const urlParams = new URLSearchParams(window.location.search);
+          urlParams.delete('userId');
+          const newUrl = `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`;
+          window.history.replaceState({}, '', newUrl);
+        }
+      }
+    }
+    
+    // Reset the ref when initialUserId is removed (user navigated away)
+    if (!initialUserId) {
+      hasProcessedInitialUserId.current = false;
+    }
+  }, [initialUserId, groupedKYCs, usersList]); // Removed actionPanel from dependencies
+
   if (kycLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -537,10 +707,27 @@ const KYCManagement = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-card-foreground">KYC Management</h1>
-          <p className="text-muted-foreground mt-2">Review and manage user KYC verifications</p>
+          <p className="text-muted-foreground mt-2">
+            Review and manage user KYC verifications
+            {!actionPanel && filteredKYCs.length > 0 && (
+              <span className="ml-2 text-blue-600 font-semibold">
+                ({filteredKYCs.length} {filteredKYCs.length === 1 ? 'user' : 'users'} found)
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          {selectedKYCs.length > 0 && (
+          {actionPanel && (
+            <Button 
+              onClick={closeActionPanel}
+              variant="outline"
+              className="flex items-center space-x-2"
+            >
+              <X className="w-4 h-4" />
+              <span>Back to List</span>
+            </Button>
+          )}
+          {!actionPanel && selectedKYCs.length > 0 && (
             <div className="flex gap-2">
               <Button onClick={handleBulkApprove} variant="outline" className="bg-green-50 text-green-700 hover:bg-green-100">
                 <CheckCircle className="h-4 w-4 mr-2" />
@@ -555,41 +742,48 @@ const KYCManagement = () => {
         </div>
       </div>
 
+      {/* Main Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 relative transition-all duration-300">
+        {/* LEFT SIDE: Stats + Filters + KYC List */}
+        <div className={cn(
+          "transition-all duration-300 space-y-4",
+          actionPanel ? "lg:col-span-5" : "lg:col-span-12"
+        )}>
       {/* Auto-Approve Control Bar */}
       <Card className={`p-4 ${autoApproveEnabled ? 'bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700' : 'bg-blue-50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700'}`}>
-        <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <div className={`p-2 rounded-lg ${autoApproveEnabled ? 'bg-green-100 dark:bg-green-900/40' : 'bg-blue-100 dark:bg-blue-900/40'}`}>
               <Zap className={`h-5 w-5 ${autoApproveEnabled ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`} />
             </div>
             <div>
               <h3 className={`font-semibold ${autoApproveEnabled ? 'text-green-900 dark:text-green-100' : 'text-blue-900 dark:text-blue-100'}`}>
-                Auto-Approve Mode {autoApproveEnabled ? 'ON' : 'OFF'}
+                    Auto-Approve {autoApproveEnabled ? 'ON' : 'OFF'}
               </h3>
               <p className={`text-sm ${autoApproveEnabled ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
-                {autoApproveEnabled 
-                  ? '✅ All new KYC submissions will be automatically approved' 
-                  : '⏸️ KYC submissions require manual review'}
+                    {autoApproveEnabled ? '✅ Auto-approving' : '⏸️ Manual review'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* Manual Auto-Approve Button */}
+                {!actionPanel && (
             <Button
               onClick={handleManualAutoApprove}
               variant="outline"
               disabled={autoApproveAllMutation.isLoading || kycList.filter(k => k.status === 'pending').length === 0}
               className="bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-900/60"
+                    size="sm"
             >
-              <Zap className="h-4 w-4 mr-2" />
-              {autoApproveAllMutation.isLoading ? 'Approving...' : 'Approve All Pending Now'}
+                    <Zap className="h-4 w-4 mr-1" />
+                    {autoApproveAllMutation.isLoading ? 'Approving...' : 'Approve All'}
             </Button>
+                )}
             
             {/* Toggle Switch */}
             <button
               onClick={handleToggleAutoApprove}
               disabled={autoApproveAllMutation.isLoading}
-              className={`relative inline-flex h-10 w-20 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 autoApproveEnabled 
                   ? 'bg-green-600 focus:ring-green-500' 
                   : 'bg-gray-300 dark:bg-gray-600 focus:ring-gray-400'
@@ -598,57 +792,57 @@ const KYCManagement = () => {
               aria-checked={autoApproveEnabled}
             >
               <span
-                className={`inline-block h-8 w-8 transform rounded-full bg-white transition-transform ${
-                  autoApproveEnabled ? 'translate-x-11' : 'translate-x-1'
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                      autoApproveEnabled ? 'translate-x-9' : 'translate-x-1'
                 }`}
               />
             </button>
-            <span className={`text-sm font-medium ${autoApproveEnabled ? 'text-green-700 dark:text-green-300' : 'text-gray-700 dark:text-gray-300'}`}>
-              {autoApproveEnabled ? 'ON' : 'OFF'}
-            </span>
           </div>
         </div>
       </Card>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6">
+          <div className={cn(
+            "grid gap-4",
+            actionPanel ? "grid-cols-2" : "grid-cols-1 md:grid-cols-4"
+          )}>
+            <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Total Documents</p>
-              <p className="text-2xl font-bold text-card-foreground">{stats.total}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Total</p>
+                  <p className="text-xl font-bold text-card-foreground">{stats.total}</p>
             </div>
-            <Shield className="h-8 w-8 text-blue-500" />
+                <Shield className="h-6 w-6 text-blue-500" />
           </div>
         </Card>
 
-        <Card className="p-6">
+            <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Pending</p>
-              <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Pending</p>
+                  <p className="text-xl font-bold text-yellow-600">{stats.pending}</p>
             </div>
-            <Clock className="h-8 w-8 text-yellow-500" />
+                <Clock className="h-6 w-6 text-yellow-500" />
           </div>
         </Card>
 
-        <Card className="p-6">
+            <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Verified</p>
-              <p className="text-2xl font-bold text-green-600">{stats.verified}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Verified</p>
+                  <p className="text-xl font-bold text-green-600">{stats.verified}</p>
             </div>
-            <CheckCircle className="h-8 w-8 text-green-500" />
+                <CheckCircle className="h-6 w-6 text-green-500" />
           </div>
         </Card>
 
-        <Card className="p-6">
+            <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Rejected</p>
-              <p className="text-2xl font-bold text-red-600">{stats.rejected}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Rejected</p>
+                  <p className="text-xl font-bold text-red-600">{stats.rejected}</p>
             </div>
-            <XCircle className="h-8 w-8 text-red-500" />
+                <XCircle className="h-6 w-6 text-red-500" />
           </div>
         </Card>
       </div>
@@ -680,9 +874,10 @@ const KYCManagement = () => {
             />
           </div>
           
-          <div>
+          {/* Status Dropdown */}
+          <div className="w-[150px]">
             <select
-              className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             >
@@ -693,20 +888,24 @@ const KYCManagement = () => {
             </select>
           </div>
 
-          <div>
-            <select
-              className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={filters.type}
-              onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-            >
-              <option value="">All Types</option>
-              <option value="cnic">CNIC</option>
-              <option value="face">Face/Selfie</option>
-              <option value="card">Card</option>
-            </select>
-          </div>
+          {/* Type Dropdown - Only show when sidebar is closed */}
+          {!actionPanel && (
+            <div className="w-[150px]">
+              <select
+                className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                value={filters.type}
+                onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+              >
+                <option value="">All Types</option>
+                <option value="cnic">CNIC</option>
+                <option value="face">Face/Selfie</option>
+                <option value="card">Card</option>
+              </select>
+            </div>
+          )}
 
-          <div>
+          {/* Clear Filters Button */}
+          {!actionPanel && (
             <Button
               type="button"
               variant="outline"
@@ -723,7 +922,377 @@ const KYCManagement = () => {
         </form>
       </Card>
 
-      {/* KYC List - Grouped by User */}
+          {/* KYC List - Users */}
+          <div className="dark:bg-slate-900/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200/50 dark:border-slate-700/50 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                KYC Users ({filteredKYCs.length})
+              </h3>
+            </div>
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+              {filteredKYCs.length === 0 ? (
+                <div className="flex flex-col items-center py-12">
+                  <Shield className="w-12 h-12 text-gray-400 mb-4 opacity-50" />
+                  <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">No KYC users found</p>
+                  <p className="text-sm text-gray-500">Try adjusting your filters</p>
+                </div>
+              ) : (
+                filteredKYCs.map((group) => {
+                  const userId = group.userId;
+                  const isSelected = actionPanel === 'details' && selectedUserId && (
+                    userId === selectedUserId || 
+                    String(userId) === String(selectedUserId)
+                  );
+                  const user = group.user;
+                  const pendingCount = group.documents.filter(d => d.status === 'pending').length;
+
+                  return (
+                    <div
+                      key={userId}
+                      onClick={() => handleOpenUserDetails(group)}
+                      className={cn(
+                        "p-3 rounded-lg cursor-pointer transition-all duration-200",
+                        isSelected
+                          ? "dark:bg-blue-900/20 border-2 border-blue-500/50"
+                          : "dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {/* Avatar */}
+                        <div className="flex-shrink-0 h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                          <img 
+                            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullName || user?.name || 'U')}`}
+                            alt=""
+                            className="w-10 h-10 rounded-full"
+                          />
+                        </div>
+                        
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {user?.fullName || user?.name || user?.displayCode || userId?.slice(0, 12) + '...'}
+                            </p>
+                            {getStatusBadge(group.overallStatus)}
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {user?.email || 'No email'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-gray-400">
+                              {group.documents.length} doc(s)
+                            </span>
+                            {pendingCount > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                {pendingCount} pending
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT SIDE: User Details Panel */}
+        {actionPanel === 'details' && selectedUserId && (
+          <div className={cn(
+            "lg:col-span-7 rounded-xl shadow-lg p-6",
+            "transition-all duration-300",
+            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+          )}>
+            {fullUserLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* User Header */}
+                <div className="pb-4 border-b border-border">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-white text-2xl">
+                        {(fullUserData?.data?.fullName || fullUserData?.data?.name || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-card-foreground">
+                          {fullUserData?.data?.fullName || fullUserData?.data?.name || 'Unknown User'}
+                        </h2>
+                        <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                          <Mail className="w-3 h-3" />
+                          {fullUserData?.data?.email || 'No email'}
+                        </p>
+                        {fullUserData?.data?.displayCode && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 mt-1">
+                            User ID: {fullUserData.data.displayCode}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={closeActionPanel}
+                      className="h-8 w-8 p-0"
+                      title="Close"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* KYC Status Section */}
+                {selectedUserKYCGroup && (
+                  <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      KYC Verification Status
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Overall Status</span>
+                        {getStatusBadge(selectedUserKYCGroup.overallStatus)}
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Documents</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {selectedUserKYCGroup.documents.length} submitted
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Pending Review</span>
+                        <span className="text-sm font-medium text-yellow-600">
+                          {selectedUserKYCGroup.documents.filter(d => d.status === 'pending').length}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Quick Actions */}
+                    {selectedUserKYCGroup.overallStatus === 'pending' && (
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          onClick={() => handleApproveFromReview(selectedUserKYCGroup)}
+                          className="flex-1 bg-green-600 hover:bg-green-700"
+                          size="sm"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Approve All
+                        </Button>
+                        <Button
+                          onClick={() => handleRejectFromReview(selectedUserKYCGroup)}
+                          variant="outline"
+                          className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+                          size="sm"
+                        >
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Reject All
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* KYC Documents Preview */}
+                {selectedUserKYCGroup && (
+                  <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      Submitted Documents
+                    </h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(() => {
+                        const allDocs = getAllUserDocuments(selectedUserKYCGroup);
+                        return (
+                          <>
+                            {allDocs.front && (
+                              <div className="border border-border rounded-lg p-2">
+                                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Front</p>
+                                <img
+                                  src={getDocumentUrl({ documentFrontUrl: allDocs.front })}
+                                  alt="Front"
+                                  className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(getDocumentUrl({ documentFrontUrl: allDocs.front }), '_blank')}
+                                  onError={(e) => {
+                                    e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                  }}
+                                />
+                              </div>
+                            )}
+                            {allDocs.back && (
+                              <div className="border border-border rounded-lg p-2">
+                                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Back</p>
+                                <img
+                                  src={getDocumentUrl({ documentBackUrl: allDocs.back })}
+                                  alt="Back"
+                                  className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(getDocumentUrl({ documentBackUrl: allDocs.back }), '_blank')}
+                                  onError={(e) => {
+                                    e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                  }}
+                                />
+                              </div>
+                            )}
+                            {allDocs.selfie && (
+                              <div className="border border-border rounded-lg p-2">
+                                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Selfie</p>
+                                <img
+                                  src={getDocumentUrl({ selfieUrl: allDocs.selfie })}
+                                  alt="Selfie"
+                                  className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(getDocumentUrl({ selfieUrl: allDocs.selfie }), '_blank')}
+                                  onError={(e) => {
+                                    e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                  }}
+                                />
+                              </div>
+                            )}
+                            {!allDocs.front && !allDocs.back && !allDocs.selfie && (
+                              <div className="col-span-3 text-center py-4 text-muted-foreground text-sm">
+                                No documents available
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleReview(selectedUserKYCGroup)}
+                      className="w-full mt-3"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Full Documents
+                    </Button>
+                  </div>
+                )}
+
+                {/* Financial Metrics */}
+                {financialLoading ? (
+                  <div className="text-center py-4">
+                    <Loader />
+                    <p className="text-sm text-gray-500 mt-2">Loading financial data...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {/* Wallet Balance */}
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Wallet</p>
+                          <div className="p-1.5 rounded bg-green-100 dark:bg-green-900/30">
+                            <Wallet className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                          </div>
+                        </div>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                          {formatPrice(userFinancialData?.walletBalance || 0)}
+                        </p>
+                      </div>
+                      
+                      {/* Total Investments */}
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Invested</p>
+                          <div className="p-1.5 rounded bg-blue-100 dark:bg-blue-900/30">
+                            <TrendingUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                        </div>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                          {formatPrice(userFinancialData?.totalInvestments || 0)}
+                        </p>
+                      </div>
+                      
+                      {/* Total Returns */}
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Returns</p>
+                          <div className="p-1.5 rounded bg-green-100 dark:bg-green-900/30">
+                            <DollarSign className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                          </div>
+                        </div>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                          {formatPrice(userFinancialData?.totalReturns || 0)}
+                        </p>
+                      </div>
+                      
+                      {/* Properties */}
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Properties</p>
+                          <div className="p-1.5 rounded bg-blue-100 dark:bg-blue-900/30">
+                            <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                        </div>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                          {userFinancialData?.propertiesInvested || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Personal Information */}
+                <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Personal Information
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Full Name</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                        {fullUserData?.data?.fullName || fullUserData?.data?.name || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Email</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                        {fullUserData?.data?.email || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Phone</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                        {fullUserData?.data?.phone || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Joined</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                        {fullUserData?.data?.createdAt 
+                          ? new Date(fullUserData.data.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })
+                          : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Account Status</span>
+                      <span className={cn(
+                        "text-sm font-semibold",
+                        (fullUserData?.data?.isActive !== undefined ? fullUserData?.data?.isActive : fullUserData?.data?.is_active)
+                          ? "text-green-600" 
+                          : "text-gray-500"
+                      )}>
+                        {(fullUserData?.data?.isActive !== undefined ? fullUserData?.data?.isActive : fullUserData?.data?.is_active) ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Original KYC Table - Hidden when sidebar is open */}
+      {!actionPanel && (
       <Card className="p-6">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -845,6 +1414,7 @@ const KYCManagement = () => {
           </table>
         </div>
       </Card>
+      )}
 
       {/* Document Viewer Modal */}
       {showDocumentModal && selectedKYC && (

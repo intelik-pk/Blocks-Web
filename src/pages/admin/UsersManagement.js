@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Search, 
   Filter, 
@@ -23,7 +24,8 @@ import {
   PieChart,
   Activity,
   User,
-  Shield
+  Shield,
+  Eye
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -50,6 +52,8 @@ const getCertificateUrl = (certificatePath) => {
 const UsersManagement = ({ initialFilters, onFiltersSet }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
   
   const [filters, setFilters] = useState({
     search: '',
@@ -100,6 +104,15 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
       staleTime: 60000
     }
   );
+
+  // Extract KYC list - handle different data structures
+  const kycList = useMemo(() => {
+    if (!allKYCData) return [];
+    return allKYCData?.data?.data || 
+           allKYCData?.data || 
+           (Array.isArray(allKYCData?.data) ? allKYCData.data : []) ||
+           [];
+  }, [allKYCData]);
 
   // Fetch selected user details
   const { data: fullUserData, isLoading: fullUserLoading } = useQuery(
@@ -162,14 +175,140 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
 
   // Helper function to get KYC status
   const getUserKYCStatus = (user) => {
-    if (!allKYCData?.data) return 'not_submitted';
-    const kycRecord = allKYCData.data.find(kyc => 
+    if (!kycList || kycList.length === 0) return 'not_submitted';
+    const kycRecord = kycList.find(kyc => 
       kyc.userId === user.id || 
       kyc.userId === user.displayCode ||
       kyc.user?.id === user.id ||
       kyc.user?.displayCode === user.displayCode
     );
     return kycRecord?.status || 'not_submitted';
+  };
+
+  // Get user's KYC records grouped
+  const getUserKYCGroup = useMemo(() => {
+    if (!selectedUserId || !kycList || kycList.length === 0) return null;
+    
+    const userKYCs = kycList.filter(kyc => {
+      const kycUserId = kyc.userId;
+      const kycUserDisplayCode = kyc.user?.displayCode;
+      const kycUserObjectId = kyc.user?.id;
+      
+      const matches = kycUserId === selectedUserId || 
+             kycUserId === fullUserData?.data?.id ||
+             kycUserId === fullUserData?.data?.displayCode ||
+             kycUserDisplayCode === selectedUserId ||
+             kycUserDisplayCode === fullUserData?.data?.id ||
+             kycUserDisplayCode === fullUserData?.data?.displayCode ||
+             kycUserObjectId === selectedUserId ||
+             kycUserObjectId === fullUserData?.data?.id ||
+             kycUserObjectId === fullUserData?.data?.displayCode;
+      
+      return matches;
+    });
+
+    if (userKYCs.length === 0) {
+      // Debug: log when no KYC records found
+      console.log('No KYC records found for user:', {
+        selectedUserId,
+        kycListLength: kycList.length,
+        sampleKyc: kycList[0],
+        fullUserData: fullUserData?.data
+      });
+      return null;
+    }
+
+    // Debug: log found KYC records
+    console.log('Found KYC records for user:', {
+      selectedUserId,
+      count: userKYCs.length,
+      records: userKYCs.map(k => ({
+        id: k.id,
+        userId: k.userId,
+        type: k.type,
+        status: k.status,
+        hasFront: !!(k.documentFrontUrl || k.document_front_url),
+        hasBack: !!(k.documentBackUrl || k.document_back_url),
+        hasSelfie: !!(k.selfieUrl || k.selfie_url)
+      }))
+    });
+
+    // Determine overall status
+    const hasPending = userKYCs.some(k => k.status === 'pending');
+    const hasRejected = userKYCs.some(k => k.status === 'rejected');
+    const allVerified = userKYCs.every(k => k.status === 'verified');
+    
+    let overallStatus = 'pending';
+    if (allVerified) overallStatus = 'verified';
+    else if (hasRejected && !hasPending) overallStatus = 'rejected';
+
+    return {
+      userId: selectedUserId,
+      user: fullUserData?.data || null,
+      documents: userKYCs,
+      overallStatus
+    };
+  }, [selectedUserId, kycList, fullUserData]);
+
+  // Helper functions for KYC
+  const getKYCStatusBadgeComponent = (status) => {
+    const statusMap = {
+      'verified': { icon: CheckCircle, color: 'text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400', label: 'Verified' },
+      'pending': { icon: Clock, color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400', label: 'Pending' },
+      'rejected': { icon: XCircle, color: 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400', label: 'Rejected' },
+      'not_submitted': { icon: XCircle, color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/30 dark:text-gray-400', label: 'Not Submitted' },
+    };
+    
+    const statusInfo = statusMap[status] || statusMap.pending;
+    const Icon = statusInfo.icon;
+    return (
+      <Badge className={statusInfo.color}>
+        <Icon className="h-3 w-3 mr-1" />
+        {statusInfo.label}
+      </Badge>
+    );
+  };
+
+  const getDocumentUrl = ({ documentFrontUrl, documentBackUrl, selfieUrl }) => {
+    // Use documentFrontUrl, documentBackUrl, or selfieUrl based on what's provided
+    let url = documentFrontUrl || documentBackUrl || selfieUrl;
+    
+    if (!url) return null;
+    
+    // If URL is already a full URL, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    
+    // If URL starts with '/', prepend API_BASE_URL
+    if (url.startsWith('/')) {
+      return `${API_BASE_URL}${url}`;
+    }
+    
+    // Otherwise, prepend API_BASE_URL with '/'
+    return `${API_BASE_URL}/${url}`;
+  };
+
+  const getAllUserDocuments = (group) => {
+    if (!group) return { front: null, back: null, selfie: null };
+    const documents = {
+      front: null,
+      back: null,
+      selfie: null
+    };
+    
+    group.documents.forEach(kyc => {
+      // Support both camelCase and snake_case field names
+      const frontUrl = kyc.documentFrontUrl || kyc.document_front_url || kyc.documentFront || kyc.document_front;
+      const backUrl = kyc.documentBackUrl || kyc.document_back_url || kyc.documentBack || kyc.document_back;
+      const selfieUrl = kyc.selfieUrl || kyc.selfie_url || kyc.selfie;
+      
+      if (frontUrl) documents.front = frontUrl;
+      if (backUrl) documents.back = backUrl;
+      if (selfieUrl) documents.selfie = selfieUrl;
+    });
+    
+    return documents;
   };
 
   // Frontend filtering and sorting
@@ -728,6 +867,7 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                         if (userId) {
                           setSelectedUserId(userId);
                           setActionPanel('details');
+                          setUserDetailsTab('overview'); // Reset to overview when selecting a new user
                         }
                       }}
                       className={cn(
@@ -813,17 +953,71 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
+
+                  {/* Tabs */}
+                  <div className="flex gap-2 mt-4 border-b border-border">
+                    <button
+                      onClick={() => setUserDetailsTab('overview')}
+                      className={cn(
+                        "px-4 py-2 text-sm font-medium transition-colors border-b-2",
+                        userDetailsTab === 'overview'
+                          ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                      )}
+                    >
+                      Overview
+                    </button>
+                    <button
+                      onClick={() => setUserDetailsTab('kyc')}
+                      className={cn(
+                        "px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2",
+                        userDetailsTab === 'kyc'
+                          ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                      )}
+                    >
+                      <Shield className="w-4 h-4" />
+                      KYC Details
+                    </button>
+                    <button
+                      onClick={() => setUserDetailsTab('investments')}
+                      className={cn(
+                        "px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2",
+                        userDetailsTab === 'investments'
+                          ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                      )}
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      Investments
+                    </button>
+                    <button
+                      onClick={() => setUserDetailsTab('transactions')}
+                      className={cn(
+                        "px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2",
+                        userDetailsTab === 'transactions'
+                          ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                      )}
+                    >
+                      <Activity className="w-4 h-4" />
+                      Transactions
+                    </button>
+                  </div>
                 </div>
 
-                {/* Financial Metrics - Row 1 */}
-                {financialLoading ? (
-                  <div className="text-center py-4">
-                    <Loader />
-                    <p className="text-sm text-gray-500 mt-2">Loading financial data...</p>
-                  </div>
-                ) : (
+                {/* Tab Content */}
+                {userDetailsTab === 'overview' ? (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* Financial Metrics - Row 1 */}
+                    {financialLoading ? (
+                      <div className="text-center py-4">
+                        <Loader />
+                        <p className="text-sm text-gray-500 mt-2">Loading financial data...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {/* Wallet Balance */}
                       <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
                         <div className="flex items-start justify-between mb-2">
@@ -975,7 +1169,7 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                   </>
                 )}
 
-                {/* Personal Information & Account Status */}
+                    {/* Personal Information & Account Status */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Personal Information */}
                   <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
@@ -1029,9 +1223,16 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-600 dark:text-gray-400">KYC Status</span>
-                        <span className="text-sm font-semibold text-green-600">
+                        <button
+                          onClick={() => {
+                            setUserDetailsTab('kyc');
+                          }}
+                          className="text-sm font-semibold text-green-600 hover:text-green-700 hover:underline cursor-pointer transition-colors flex items-center gap-1 group"
+                          title="Click to view KYC details"
+                        >
                           {getKYCStatusBadge(getUserKYCStatus(fullUserData?.data || {})).text}
-                        </span>
+                          <Shield className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-600 dark:text-gray-400">Joined Date</span>
@@ -1193,13 +1394,322 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                   </Card>
                 )}
 
-                {/* Action Buttons */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                  <Button variant="outline" className="flex items-center gap-2">
-                    <Edit className="w-4 h-4" />
-                    Edit User
-                  </Button>
-                </div>
+                    {/* Action Buttons */}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                      <Button variant="outline" className="flex items-center gap-2">
+                        <Edit className="w-4 h-4" />
+                        Edit User
+                      </Button>
+                    </div>
+                  </>
+                ) : userDetailsTab === 'investments' ? (
+                  /* Investments Tab */
+                  <div className="space-y-4">
+                    {financialLoading ? (
+                      <div className="text-center py-4">
+                        <Loader />
+                        <p className="text-sm text-gray-500 mt-2">Loading investment data...</p>
+                      </div>
+                    ) : userFinancialData?.investments && userFinancialData.investments.length > 0 ? (
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
+                          Investment Portfolio
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-gray-200 dark:border-slate-700">
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Property</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Amount Invested</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Tokens</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Returns</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                              {userFinancialData.investments.map((investment, index) => {
+                                const amount = parseFloat(investment.amountInvestedUSDT || investment.amount || 0);
+                                const tokens = parseFloat(investment.tokensPurchased || investment.tokens || 0);
+                                const returns = parseFloat(investment.totalRewardsUSDT || investment.returns || 0);
+                                const propertyName = investment.property?.title || investment.propertyName || 'N/A';
+                                const displayCode = investment.displayCode || '';
+                                const status = investment.status || 'active';
+                                const certificatePath = investment.certificatePath || investment.certificate_path || null;
+                                const certificateUrl = certificatePath ? getCertificateUrl(certificatePath) : null;
+                                
+                                return (
+                                  <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-700/30">
+                                    <td className="px-3 py-2">
+                                      <div className="flex items-center gap-2">
+                                        <div>
+                                          <p className="font-medium text-gray-900 dark:text-gray-100 text-xs">{propertyName}</p>
+                                          {displayCode && (
+                                            <p className="text-[10px] text-gray-500 dark:text-gray-400">{displayCode}</p>
+                                          )}
+                                        </div>
+                                        {certificateUrl && (
+                                          <button
+                                            onClick={() => window.open(certificateUrl, '_blank')}
+                                            className="p-1 hover:bg-gray-100 dark:hover:bg-slate-600 rounded"
+                                            title="View Certificate"
+                                          >
+                                            <FileText className="w-3 h-3 text-gray-500" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">{formatPrice(amount)}</td>
+                                    <td className="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">{tokens.toLocaleString()}</td>
+                                    <td className="px-3 py-2 text-xs text-green-600">{formatPrice(returns)}</td>
+                                    <td className="px-3 py-2">
+                                      <span className={cn(
+                                        "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium",
+                                        status === 'confirmed' || status === 'active' 
+                                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                          : status === 'pending'
+                                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                          : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400"
+                                      )}>
+                                        {status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <TrendingUp className="w-12 h-12 text-gray-400 mx-auto mb-4 opacity-50" />
+                        <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">No Investments</p>
+                        <p className="text-sm text-gray-500">This user has not made any investments yet.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : userDetailsTab === 'transactions' ? (
+                  /* Transactions Tab */
+                  <div className="space-y-4">
+                    {financialLoading ? (
+                      <div className="text-center py-4">
+                        <Loader />
+                        <p className="text-sm text-gray-500 mt-2">Loading transaction data...</p>
+                      </div>
+                    ) : userFinancialData?.transactions && userFinancialData.transactions.length > 0 ? (
+                      <Card className="p-4">
+                        <h3 className="text-base font-semibold text-card-foreground mb-3 flex items-center gap-2">
+                          <Activity className="w-4 h-4" />
+                          Recent Transactions
+                        </h3>
+                        <div className="space-y-2">
+                          {userFinancialData.transactions.map((transaction, index) => {
+                            const txType = transaction.type || 'unknown';
+                            const isDeposit = txType === 'deposit';
+                            const amount = parseFloat(transaction.amountUSDT || transaction.amount_in_pkr || transaction.amount || 0);
+                            
+                            return (
+                              <div key={index} className="flex items-center justify-between p-3 bg-accent rounded-lg">
+                                <div className="flex items-center space-x-3">
+                                  <div className={`p-2 rounded-lg ${isDeposit ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+                                    <DollarSign className={`w-4 h-4 ${isDeposit ? 'text-green-600' : 'text-red-600'}`} />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center space-x-2">
+                                      <p className="text-sm font-medium text-card-foreground">{transaction.description || txType}</p>
+                                      {transaction.displayCode && (
+                                        <span className="text-xs text-muted-foreground">({transaction.displayCode})</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">{formatDate(transaction.createdAt || transaction.date)}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-sm font-semibold ${isDeposit ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isDeposit ? '+' : '-'}{formatPrice(amount)}
+                                  </p>
+                                  <Badge 
+                                    variant={transaction.status === 'completed' ? 'success' : transaction.status === 'pending' ? 'warning' : 'default'}
+                                    className="text-[10px]"
+                                  >
+                                    {transaction.status}
+                                  </Badge>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Card>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4 opacity-50" />
+                        <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">No Transactions</p>
+                        <p className="text-sm text-gray-500">This user has no transaction history yet.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* KYC Details Tab */
+                  <div className="space-y-4">
+                    {getUserKYCGroup ? (
+                      <>
+                        {/* KYC Status Section */}
+                        <div className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                            <Shield className="w-4 h-4" />
+                            KYC Verification Status
+                          </h3>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Overall Status</span>
+                              {getKYCStatusBadgeComponent(getUserKYCGroup.overallStatus)}
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Documents</span>
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {getUserKYCGroup.documents.length} submitted
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Pending Review</span>
+                              <span className="text-sm font-medium text-yellow-600">
+                                {getUserKYCGroup.documents.filter(d => d.status === 'pending').length}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* KYC Documents Preview */}
+                        <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            Submitted Documents
+                          </h3>
+                          <div className="grid grid-cols-3 gap-3">
+                            {(() => {
+                              const allDocs = getAllUserDocuments(getUserKYCGroup);
+                              const frontUrl = allDocs.front ? getDocumentUrl({ documentFrontUrl: allDocs.front }) : null;
+                              const backUrl = allDocs.back ? getDocumentUrl({ documentBackUrl: allDocs.back }) : null;
+                              const selfieUrl = allDocs.selfie ? getDocumentUrl({ selfieUrl: allDocs.selfie }) : null;
+                              
+                              return (
+                                <>
+                                  {frontUrl ? (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Front</p>
+                                      <img
+                                        src={frontUrl}
+                                        alt="Front"
+                                        className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                        onClick={() => window.open(frontUrl, '_blank')}
+                                        onError={(e) => {
+                                          e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Front</p>
+                                      <div className="w-full h-20 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
+                                        <span className="text-xs text-gray-400">No image</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {backUrl ? (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Back</p>
+                                      <img
+                                        src={backUrl}
+                                        alt="Back"
+                                        className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                        onClick={() => window.open(backUrl, '_blank')}
+                                        onError={(e) => {
+                                          e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Back</p>
+                                      <div className="w-full h-20 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
+                                        <span className="text-xs text-gray-400">No image</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {selfieUrl ? (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Selfie</p>
+                                      <img
+                                        src={selfieUrl}
+                                        alt="Selfie"
+                                        className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80"
+                                        onClick={() => window.open(selfieUrl, '_blank')}
+                                        onError={(e) => {
+                                          e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="80"%3E%3Crect fill="%23f3f4f6" width="100" height="80"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="10"%3ENo image%3C/text%3E%3C/svg%3E';
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="border border-border rounded-lg p-2">
+                                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Selfie</p>
+                                      <div className="w-full h-20 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
+                                        <span className="text-xs text-gray-400">No image</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* KYC Documents List */}
+                        <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-gray-200 dark:border-slate-700">
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
+                            Document Details
+                          </h3>
+                          <div className="space-y-3">
+                            {getUserKYCGroup.documents.map((kyc, index) => (
+                              <div key={kyc.id || index} className="border border-border rounded-lg p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                      {kyc.type === 'cnic' ? 'CNIC' : kyc.type === 'face' ? 'Face/Selfie' : kyc.type === 'card' ? 'Card' : kyc.type}
+                                    </span>
+                                  </div>
+                                  {getKYCStatusBadgeComponent(kyc.status)}
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                                  {kyc.submittedAt && (
+                                    <div>Submitted: {new Date(kyc.submittedAt).toLocaleDateString()}</div>
+                                  )}
+                                  {kyc.reviewedAt && (
+                                    <div>Reviewed: {new Date(kyc.reviewedAt).toLocaleDateString()}</div>
+                                  )}
+                                  {kyc.reviewer && (
+                                    <div>Reviewer: {kyc.reviewer}</div>
+                                  )}
+                                  {kyc.rejectionReason && (
+                                    <div className="text-red-600 dark:text-red-400">
+                                      Reason: {kyc.rejectionReason}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4 opacity-50" />
+                        <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">No KYC Records</p>
+                        <p className="text-sm text-gray-500">This user has not submitted any KYC documents yet.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
