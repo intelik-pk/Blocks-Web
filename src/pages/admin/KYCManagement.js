@@ -28,6 +28,7 @@ const KYCManagement = () => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   
+  const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -51,17 +52,25 @@ const KYCManagement = () => {
     return saved === 'true';
   });
 
-  // Fetch all KYC verifications
+  // Debounce search input - only update filters, no API call
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchInput }));
+    }, 300); // 300ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Fetch all KYC verifications - fetch all data once, filter client-side
   const { data: kycData, isLoading: kycLoading } = useQuery(
-    ['all-kyc', filters, currentPage],
+    ['all-kyc'],
     () => adminAPI.getAllKYC({
-      ...filters,
-      page: currentPage,
-      limit: 50
+      limit: 1000 // Get all records for client-side filtering
     }),
     {
       enabled: isAuthenticated,
       retry: false,
+      staleTime: 30000, // Cache for 30 seconds to prevent unnecessary refetches
       onError: (error) => {
         console.warn('KYC API not available:', error.response?.status);
       }
@@ -646,15 +655,25 @@ const KYCManagement = () => {
 
       {/* Filters */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            return false;
+          }}
+          className="grid grid-cols-1 md:grid-cols-4 gap-4"
+        >
           <div>
             <Input
+              type="text"
               placeholder="Search by name, email, user ID..."
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
+                  e.stopPropagation();
                 }
               }}
               icon={<Search className="h-4 w-4 text-muted-foreground" />}
@@ -689,14 +708,19 @@ const KYCManagement = () => {
 
           <div>
             <Button
+              type="button"
               variant="outline"
-              onClick={() => setFilters({ search: '', status: '', type: '', sort_by: 'submittedAt', sort_order: 'desc' })}
+              onClick={(e) => {
+                e.preventDefault();
+                setSearchInput('');
+                setFilters({ search: '', status: '', type: '', sort_by: 'submittedAt', sort_order: 'desc' });
+              }}
               className="w-full"
             >
               Clear Filters
             </Button>
           </div>
-        </div>
+        </form>
       </Card>
 
       {/* KYC List - Grouped by User */}

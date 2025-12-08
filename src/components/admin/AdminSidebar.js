@@ -14,10 +14,12 @@ import {
   Bell,
   Menu,
   X,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 const AdminSidebar = ({ activeTab, setActiveTab }) => {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
@@ -62,7 +64,7 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <Menu size={18} /> : <X size={18} />}
+          {collapsed ? <Menu size={18} /> : <Lock size={18} />}
         </button>
       </div>
 
