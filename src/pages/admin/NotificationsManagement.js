@@ -1,18 +1,25 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { 
-  Bell, 
-  Send, 
-  Users, 
-  Building2, 
-  Wallet, 
-  TrendingUp, 
+import { useSearchParams, useLocation } from 'react-router-dom';
+import {
+  Bell,
+  Send,
+  Users,
+  Building2,
+  Wallet,
+  TrendingUp,
   MessageSquare,
   X,
   CheckCircle,
   AlertCircle,
   Search,
-  Clock
+  Clock,
+  MoreVertical,
+  Trash2,
+  Filter,
+  Calendar,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -26,7 +33,7 @@ import toast from 'react-hot-toast';
 const NotificationsManagement = ({ activeView = 'send' }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
-  
+
   const [formData, setFormData] = useState({
     userIds: [],
     title: '',
@@ -39,14 +46,66 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [showUserSelector, setShowUserSelector] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState(activeView);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+
+  // Initialize activeTab - if there's a 'selected' param, default to 'view' tab
+  const initialTab = searchParams.get('selected') ? 'view' : activeView;
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [blocksAdminUserId, setBlocksAdminUserId] = useState(null);
   const [notificationSearchQuery, setNotificationSearchQuery] = useState('');
+  const [rightPanelMode, setRightPanelMode] = useState('none'); // 'none' | 'preview' | 'sending' | 'success'
 
-  // Sync activeTab with activeView prop
+  // View Notifications state
+  const [viewTab, setViewTab] = useState('all'); // 'all' | 'unread' | 'read' | 'status' | 'failed'
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [viewFilters, setViewFilters] = useState({
+    search: '',
+    category: '',
+    status: '',
+    date: ''
+  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedNotifications, setSelectedNotifications] = useState([]);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const itemsPerPage = 10;
+  const notificationRefs = useRef({});
+  const [hasProcessedSelected, setHasProcessedSelected] = useState(false);
+
+  // Sync activeTab with activeView prop (but prioritize 'selected' param)
   useEffect(() => {
-    setActiveTab(activeView);
-  }, [activeView]);
+    const selectedId = searchParams.get('selected');
+    if (selectedId) {
+      // If there's a selected notification, always use 'view' tab
+      if (activeTab !== 'view') {
+        setActiveTab('view');
+      }
+    } else {
+      // Otherwise, sync with activeView prop
+      setActiveTab(activeView);
+    }
+  }, [activeView, searchParams]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (openMenuId && !event.target.closest('.notification-menu')) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openMenuId]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [viewFilters, viewTab]);
+
+  // Clear selection when switching tabs
+  useEffect(() => {
+    setSelectedNotification(null);
+  }, [viewTab]);
 
   // Fetch all users
   const { data: usersData, isLoading: usersLoading } = useQuery(
@@ -92,18 +151,14 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
         const result = response?.data || response;
         if (result.success) {
           toast.success(`Notification sent successfully! Sent: ${result.sent}, Failed: ${result.failed}`);
-          // Reset form
-          setFormData({
-            userIds: [],
-            title: '',
-            message: '',
-            category: 'notifications',
-            propertyId: '',
-            customUrl: '',
-          });
-          setSelectedUsers([]);
+          setRightPanelMode('success');
+          // Auto-reset after 3 seconds
+          setTimeout(() => {
+            handleReset();
+          }, 3000);
         } else {
           toast.error(`Some notifications failed. Sent: ${result.sent}, Failed: ${result.failed}`);
+          setRightPanelMode('none');
           if (result.errors && result.errors.length > 0) {
             console.error('Notification errors:', result.errors);
           }
@@ -112,6 +167,7 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
       onError: (error) => {
         toast.error(error.response?.data?.message || 'Failed to send notification');
         console.error('Send notification error:', error);
+        setRightPanelMode('none');
       },
     }
   );
@@ -136,13 +192,13 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
   const handleSelectAll = () => {
     // Use filteredUsers for select all
     const usersToSelect = filteredUsers.length > 0 ? filteredUsers : users;
-    const allFilteredSelected = usersToSelect.every(user => 
+    const allFilteredSelected = usersToSelect.every(user =>
       selectedUsers.some(selected => selected.id === user.id)
     );
 
     if (allFilteredSelected && usersToSelect.length > 0) {
       // Deselect all filtered users
-      const remainingSelected = selectedUsers.filter(selected => 
+      const remainingSelected = selectedUsers.filter(selected =>
         !usersToSelect.some(user => user.id === selected.id)
       );
       setSelectedUsers(remainingSelected);
@@ -169,9 +225,30 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     });
   };
 
+  const handleReset = () => {
+    setFormData({
+      userIds: [],
+      title: '',
+      message: '',
+      category: 'notifications',
+      propertyId: '',
+      customUrl: '',
+    });
+    setSelectedUsers([]);
+    setRightPanelMode('none');
+  };
+
+  const handlePreview = () => {
+    if (!formData.title.trim() || !formData.message.trim()) {
+      toast.error('Please enter title and message to preview');
+      return;
+    }
+    setRightPanelMode('preview');
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    
+
     if (!formData.userIds || formData.userIds.length === 0) {
       toast.error('Please select at least one user');
       return;
@@ -198,8 +275,8 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     }
 
     // Ensure userIds is an array
-    const userIdsArray = Array.isArray(formData.userIds) 
-      ? formData.userIds 
+    const userIdsArray = Array.isArray(formData.userIds)
+      ? formData.userIds
       : (formData.userIds ? [formData.userIds] : []);
 
     if (userIdsArray.length === 0) {
@@ -217,6 +294,7 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     };
 
     console.log('Sending notification payload:', payload);
+    setRightPanelMode('sending');
     sendNotificationMutation.mutate(payload);
   };
 
@@ -295,8 +373,14 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     }
   );
 
-  // Parse notifications
+  // Parse notifications - MUST be declared before any useEffect that uses it
+  // Initialize with empty array to prevent "before initialization" errors
   const notifications = useMemo(() => {
+    // Always return an array, never null or undefined
+    if (!notificationsData) {
+      return [];
+    }
+
     let data = null;
     if (notificationsData?.notifications) {
       data = notificationsData.notifications;
@@ -307,6 +391,8 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     } else if (Array.isArray(notificationsData)) {
       data = notificationsData;
     }
+
+    // Always return an array, never null or undefined
     return Array.isArray(data) ? data : [];
   }, [notificationsData]);
 
@@ -315,8 +401,8 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     if (!Array.isArray(notifications)) return [];
     if (!notificationSearchQuery) return notifications;
     const query = notificationSearchQuery.toLowerCase();
-    return notifications.filter(n => 
-      n?.title?.toLowerCase().includes(query) || 
+    return notifications.filter(n =>
+      n?.title?.toLowerCase().includes(query) ||
       n?.message?.toLowerCase().includes(query)
     );
   }, [notifications, notificationSearchQuery]);
@@ -339,10 +425,73 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
         `${API_BASE_URL}/api/notifications/mark-read/${notificationId}/user/${blocksAdminUserId}`,
         { method: 'PATCH' }
       );
+      if (!response.ok) {
+        throw new Error('Failed to mark notification as read');
+      }
       return response.json();
     },
     {
+      onMutate: async (notificationId) => {
+        // Optimistically update the UI
+        await queryClient.cancelQueries(['admin-notifications-view']);
+        const previousData = queryClient.getQueryData(['admin-notifications-view']);
+
+        queryClient.setQueryData(['admin-notifications-view'], (old) => {
+          const updateNotification = (notifications) => {
+            if (Array.isArray(notifications)) {
+              return notifications.map(n =>
+                n.id === notificationId ? { ...n, read: true, is_read: true } : n
+              );
+            }
+            if (notifications?.notifications) {
+              return {
+                ...notifications,
+                notifications: notifications.notifications.map(n =>
+                  n.id === notificationId ? { ...n, read: true, is_read: true } : n
+                )
+              };
+            }
+            if (notifications?.data?.notifications) {
+              return {
+                ...notifications,
+                data: {
+                  ...notifications.data,
+                  notifications: notifications.data.notifications.map(n =>
+                    n.id === notificationId ? { ...n, read: true, is_read: true } : n
+                  )
+                }
+              };
+            }
+            return notifications;
+          };
+
+          if (Array.isArray(old)) {
+            return updateNotification(old);
+          }
+          if (old?.data) {
+            return { ...old, data: updateNotification(old.data) };
+          }
+          return old;
+        });
+
+        // Update selected notification if it's the one being marked
+        if (selectedNotification?.id === notificationId) {
+          setSelectedNotification(prev => prev ? { ...prev, read: true, is_read: true, status: 'read' } : null);
+        }
+
+        return { previousData };
+      },
+      onError: (err, notificationId, context) => {
+        // Rollback on error
+        if (context?.previousData) {
+          queryClient.setQueryData(['admin-notifications-view'], context.previousData);
+        }
+        toast.error('Failed to mark notification as read');
+      },
       onSuccess: () => {
+        toast.success('Notification marked as read');
+      },
+      onSettled: () => {
         queryClient.invalidateQueries(['admin-notifications-view']);
         queryClient.invalidateQueries(['admin-notifications']);
       },
@@ -387,6 +536,282 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // Helper: Derive category from redirect_route
+  const getNotificationCategory = (notification) => {
+    const route = notification.redirect_route || notification.category || '';
+    if (route.includes('properties') && route.includes('detail')) return 'Property Detail';
+    if (route.includes('properties')) return 'Properties';
+    if (route.includes('portfolio')) return 'Portfolio';
+    if (route.includes('wallet')) return 'Wallet';
+    if (route.includes('notifications')) return 'Notifications';
+    if (route.startsWith('/')) return 'Custom';
+    return notification.category || 'General';
+  };
+
+  // Helper: Get category key for icon mapping
+  const getCategoryKeyFromRoute = (route) => {
+    if (!route) return 'notifications';
+    if (route.includes('properties') && route.includes('detail')) return 'property-detail';
+    if (route.includes('properties')) return 'properties';
+    if (route.includes('portfolio')) return 'portfolio';
+    if (route.includes('wallet')) return 'wallet';
+    if (route.includes('notifications')) return 'notifications';
+    if (route.startsWith('/')) return 'custom';
+    return 'notifications';
+  };
+
+  // Helper: Group notifications by date
+  const groupNotificationsByDate = (notifications) => {
+    const groups = {
+      'Today': [],
+      'Yesterday': [],
+      'This Week': [],
+      'Older': []
+    };
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    notifications.forEach(notification => {
+      const date = new Date(notification.createdAt || notification.created_at);
+      if (date >= today) {
+        groups['Today'].push(notification);
+      } else if (date >= yesterday) {
+        groups['Yesterday'].push(notification);
+      } else if (date >= weekAgo) {
+        groups['This Week'].push(notification);
+      } else {
+        groups['Older'].push(notification);
+      }
+    });
+
+    return Object.entries(groups).filter(([_, items]) => items.length > 0);
+  };
+
+  // Helper: Filter by date range
+  const filterByDate = (notification, dateFilter) => {
+    if (!dateFilter || !notification.createdAt) return true;
+
+    const notificationDate = new Date(notification.createdAt);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(today);
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+    switch (dateFilter) {
+      case 'today':
+        return notificationDate >= today;
+      case 'yesterday':
+        return notificationDate >= yesterday && notificationDate < today;
+      case 'this-week':
+        return notificationDate >= weekAgo;
+      case 'this-month':
+        return notificationDate >= monthAgo;
+      case 'older':
+        return notificationDate < monthAgo;
+      default:
+        return true;
+    }
+  };
+
+  // Filter and process notifications for view tab
+  const processedNotifications = useMemo(() => {
+    // Safe guard: ensure notifications is always an array before accessing
+    if (!notifications || !Array.isArray(notifications)) {
+      return [];
+    }
+
+    // Early return if empty
+    if (notifications.length === 0) {
+      return [];
+    }
+
+    // Map notifications from database - no hardcoded data
+    let processed = notifications.map(n => ({
+      id: n.id,
+      title: n.title || 'No Title',
+      message: n.message || '',
+      category: getNotificationCategory(n),
+      status: n.read || n.is_read ? 'read' : 'unread',
+      createdAt: n.createdAt || n.created_at || n.created_at,
+      redirect_route: n.redirect_route || n.category || '',
+      read: n.read || n.is_read || false,
+      ...n // Include all original fields from database
+    }));
+
+    // Apply search filter
+    if (viewFilters.search) {
+      const query = viewFilters.search.toLowerCase();
+      processed = processed.filter(n =>
+        n.title.toLowerCase().includes(query) ||
+        n.message.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply category filter
+    if (viewFilters.category) {
+      processed = processed.filter(n => n.category === viewFilters.category);
+    }
+
+    // Apply status filter
+    if (viewFilters.status) {
+      processed = processed.filter(n => n.status === viewFilters.status);
+    }
+
+    // Apply date filter
+    if (viewFilters.date) {
+      processed = processed.filter(n => filterByDate(n, viewFilters.date));
+    }
+
+    // Apply tab filter
+    if (viewTab === 'unread') {
+      processed = processed.filter(n => !n.read);
+    } else if (viewTab === 'read') {
+      processed = processed.filter(n => n.read);
+    }
+
+    return processed;
+  }, [notifications, viewFilters, viewTab]);
+
+  // Calculate statistics
+  const notificationStats = useMemo(() => {
+    // Safe guard: ensure notifications exists and is an array
+    if (!notifications || !Array.isArray(notifications)) {
+      return { total: 0, unread: 0, read: 0, failed: 0, active: 0 };
+    }
+    const total = notifications.length;
+    const unread = notifications.filter(n => !(n.read || n.is_read)).length;
+    const read = notifications.filter(n => n.read || n.is_read).length;
+    const failed = 0; // This would come from backend if available
+    return { total, unread, read, failed, active: total - failed };
+  }, [notifications]);
+
+  // Handle selected notification from URL query parameter - MUST be after notifications and processedNotifications are declared
+  useEffect(() => {
+    const selectedId = searchParams.get('selected');
+
+    // Don't process if no selected ID or already processed
+    if (!selectedId || hasProcessedSelected) {
+      return;
+    }
+
+    // Wait for notifications to load - don't process if still loading
+    if (notificationsLoading) {
+      return;
+    }
+
+    // Safe guard: ensure notifications exists and is an array
+    if (!notifications || !Array.isArray(notifications)) {
+      return;
+    }
+
+    // If notifications array is empty, wait for data to load
+    if (notifications.length === 0) {
+      return;
+    }
+
+    if (selectedId) {
+      // Find the notification in all notifications (not just processed, in case it's filtered out)
+      const notification = notifications.find(n =>
+        String(n.id) === String(selectedId)
+      );
+
+      if (notification) {
+        // Switch to view tab if not already
+        const needsTabSwitch = activeTab !== 'view';
+        if (needsTabSwitch) {
+          setActiveTab('view');
+        }
+
+        // Process notification data
+        const processedNotification = {
+          id: notification.id,
+          title: notification.title || 'No Title',
+          message: notification.message || '',
+          category: getNotificationCategory(notification),
+          status: notification.read || notification.is_read ? 'read' : 'unread',
+          createdAt: notification.createdAt || notification.created_at,
+          redirect_route: notification.redirect_route || notification.category || '',
+          read: notification.read || notification.is_read || false,
+          ...notification
+        };
+
+        // Find which page the notification is on (if paginated) - safely access processedNotifications
+        let notificationIndex = -1;
+        if (Array.isArray(processedNotifications) && processedNotifications.length > 0) {
+          notificationIndex = processedNotifications.findIndex(n => n.id === processedNotification.id);
+          if (notificationIndex >= 0) {
+            const targetPage = Math.floor(notificationIndex / itemsPerPage) + 1;
+            if (targetPage !== currentPage) {
+              setCurrentPage(targetPage);
+            }
+          }
+        }
+
+        // Mark as read if unread
+        if (!processedNotification.read && !processedNotification.is_read) {
+          markAsReadMutation.mutate(processedNotification.id);
+        }
+
+        // Set selected notification (this will open details panel)
+        setSelectedNotification(processedNotification);
+
+        // Wait for tab switch, pagination, and DOM update, then scroll
+        // Longer delay if we need to switch tabs or change pages to ensure DOM is ready
+        const scrollDelay = needsTabSwitch ? 1000 : (notificationIndex >= 0 && Math.floor(notificationIndex / itemsPerPage) + 1 !== currentPage ? 800 : 500);
+        setTimeout(() => {
+          const element = notificationRefs.current[processedNotification.id];
+          if (element) {
+            element.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center'
+            });
+            // Add highlight effect
+            element.classList.add('ring-2', 'ring-blue-500', 'transition-all');
+            setTimeout(() => {
+              element.classList.remove('ring-2', 'ring-blue-500');
+            }, 2000);
+          }
+        }, scrollDelay);
+
+        // Remove query parameter from URL after processing
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.delete('selected');
+        setSearchParams(newSearchParams, { replace: true });
+        setHasProcessedSelected(true);
+      } else if (notifications.length > 0) {
+        // Notification not found in list - clear the selected parameter
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.delete('selected');
+        setSearchParams(newSearchParams, { replace: true });
+        setHasProcessedSelected(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, notifications, notificationsLoading, activeTab, hasProcessedSelected, processedNotifications, currentPage]);
+
+  // Reset hasProcessedSelected when location changes
+  useEffect(() => {
+    setHasProcessedSelected(false);
+  }, [location.pathname]);
+
+  // Pagination
+  const paginatedNotifications = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return processedNotifications.slice(start, end);
+  }, [processedNotifications, currentPage]);
+
+  const totalPages = Math.ceil(processedNotifications.length / itemsPerPage);
+
   if (!isAuthenticated) {
     return (
       <Card className="p-8 text-center">
@@ -411,22 +836,20 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
         <nav className="flex space-x-8">
           <button
             onClick={() => setActiveTab('send')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'send'
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'send'
                 ? 'border-black text-black dark:text-white'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+              }`}
           >
             <Send className="w-4 h-4 inline mr-2" />
             Send Notification
           </button>
           <button
             onClick={() => setActiveTab('view')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'view'
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'view'
                 ? 'border-black text-black dark:text-white'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
+              }`}
           >
             <Bell className="w-4 h-4 inline mr-2" />
             View Notifications
@@ -441,371 +864,838 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
 
       {/* Tab Content */}
       {activeTab === 'send' ? (
-        <Card className="p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* User Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Users <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowUserSelector(!showUserSelector)}
-                className="w-full justify-between"
-              >
-                <span>
-                  {selectedUsers.length === 0
-                    ? 'Select users...'
-                    : `${selectedUsers.length} user${selectedUsers.length > 1 ? 's' : ''} selected`}
-                </span>
-                <Users className="w-4 h-4" />
-              </Button>
+        <div className={`grid grid-cols-1 xl:grid-cols-10 gap-6 w-full transition-all duration-300`}>
+          {/* LEFT COLUMN - Form (Full width initially, 50% when right panel opens) */}
+          <div className={`space-y-6 transition-all duration-300 ${rightPanelMode === 'none' ? 'xl:col-span-10' : 'xl:col-span-5'
+            }`}>
+            <Card className="p-6 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Category Section - At Top */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Category (Redirect Route) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {['properties', 'property-detail', 'portfolio', 'wallet', 'notifications', 'custom'].map((category) => {
+                      const Icon = getCategoryIcon(category);
+                      const isSelected = formData.category === category;
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => handleCategoryChange(category)}
+                          className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${isSelected
+                              ? 'border-black dark:bg-black/20 dark:border-white shadow-lg shadow-black/20 ring-2 ring-black/30'
+                              : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 bg-white/50 dark:bg-slate-800/50'
+                            }`}
+                        >
+                          <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-black dark:text-white' : 'text-gray-400 dark:text-gray-500'}`} />
+                          <p className={`text-sm font-medium ${isSelected ? 'text-black dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
+                            {getCategoryLabel(category)}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* User Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Select Users <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowUserSelector(!showUserSelector)}
+                      className="w-full justify-between"
+                    >
+                      <span>
+                        {selectedUsers.length === 0
+                          ? 'Select users...'
+                          : `${selectedUsers.length} user${selectedUsers.length > 1 ? 's' : ''} selected`}
+                      </span>
+                      <Users className="w-4 h-4" />
+                    </Button>
 
-              {showUserSelector && (
-                <Card className="absolute z-10 w-full mt-2 max-h-96 overflow-y-auto">
-                  <div className="p-4 space-y-2">
-                    <div className="flex items-center justify-between mb-2 pb-2 border-b">
-                      <span className="text-sm font-medium">Select Users</span>
+                    {showUserSelector && (
+                      <Card className="absolute z-10 w-full mt-2 max-h-96 overflow-y-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-xl">
+                        <div className="p-4 space-y-2">
+                          <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-200 dark:border-slate-700">
+                            <span className="text-sm font-medium">Select Users</span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleSelectAll}
+                            >
+                              {filteredUsers.every(user => selectedUsers.some(u => u.id === user.id)) && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
+                            </Button>
+                          </div>
+
+                          {/* Search Input */}
+                          <div className="mb-3">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                              <input
+                                type="text"
+                                placeholder="Search by name or email..."
+                                value={userSearchQuery}
+                                onChange={(e) => setUserSearchQuery(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              {userSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUserSearchQuery('');
+                                  }}
+                                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                            {userSearchQuery && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+                              </p>
+                            )}
+                          </div>
+
+                          {usersLoading ? (
+                            <div className="text-center py-4">
+                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                            </div>
+                          ) : filteredUsers.length === 0 ? (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+                              {userSearchQuery ? 'No users found matching your search' : 'No users found'}
+                            </p>
+                          ) : (
+                            filteredUsers.map((user) => {
+                              const isSelected = selectedUsers.some(u => u.id === user.id);
+                              return (
+                                <div
+                                  key={user.id}
+                                  onClick={() => handleUserToggle(user)}
+                                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' : ''
+                                    }`}
+                                >
+                                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-slate-600'
+                                    }`}>
+                                    {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{user.fullName || user.name || user.email}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </Card>
+                    )}
+                  </div>
+                  {selectedUsers.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedUsers.map((user) => (
+                        <Badge
+                          key={user.id}
+                          variant="default"
+                          className="flex items-center gap-1"
+                        >
+                          {user.fullName || user.name || user.email}
+                          <X
+                            className="w-3 h-3 cursor-pointer"
+                            onClick={() => handleUserToggle(user)}
+                          />
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Title <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="Enter notification title"
+                    required
+                  />
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Message <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={formData.message}
+                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                    placeholder="Enter notification message"
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                    required
+                  />
+                </div>
+
+
+                {/* Property Selector (if property-detail category) */}
+                {formData.category === 'property-detail' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Select Property <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formData.propertyId}
+                      onChange={(e) => setFormData({ ...formData, propertyId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                      required
+                    >
+                      <option value="">Select a property...</option>
+                      {properties.map((property) => (
+                        <option key={property.id} value={property.id || property.displayCode}>
+                          {property.title || property.name || property.displayCode}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Custom URL (if custom category) */}
+                {formData.category === 'custom' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Custom URL <span className="text-red-500">*</span>
+                    </label>
+                    <Input
+                      type="text"
+                      value={formData.customUrl}
+                      onChange={(e) => setFormData({ ...formData, customUrl: e.target.value })}
+                      placeholder="/custom-route or /properties/123"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Enter a route path (e.g., /properties, /portfolio, /wallet)</p>
+                  </div>
+                )}
+
+                {/* Footer Buttons */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-slate-700">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleReset}
+                    className="border-gray-300 dark:border-slate-600"
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePreview}
+                    className="border-blue-500 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  >
+                    Preview
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={sendNotificationMutation.isLoading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    {sendNotificationMutation.isLoading ? 'Sending...' : 'Send Notification'}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+
+          {/* RIGHT COLUMN - Preview/Sending Panel (50% when open, hidden when closed) */}
+          {rightPanelMode !== 'none' && (
+            <div className="xl:col-span-5 space-y-6 transition-all duration-300 ease-out opacity-100 transform translate-x-0">
+              {rightPanelMode === 'preview' && (
+                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-slate-700">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Preview</h3>
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={handleSelectAll}
+                        onClick={() => setRightPanelMode('none')}
+                        className="h-8 w-8 p-0"
                       >
-                        {filteredUsers.every(user => selectedUsers.some(u => u.id === user.id)) && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
+                        <X className="w-4 h-4" />
                       </Button>
                     </div>
-                    
-                    {/* Search Input */}
-                    <div className="mb-3">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                          type="text"
-                          placeholder="Search by name or email..."
-                          value={userSearchQuery}
-                          onChange={(e) => setUserSearchQuery(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        {userSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setUserSearchQuery('');
-                            }}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
+
+                    {/* Preview Card */}
+                    <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl p-6 border border-blue-200/50 dark:border-blue-700/50 shadow-lg">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="p-2 bg-blue-500/10 dark:bg-blue-400/20 rounded-lg">
+                          {React.createElement(getCategoryIcon(formData.category), { className: "w-5 h-5 text-blue-600 dark:text-blue-400" })}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">
+                            {formData.title || 'Notification Title'}
+                          </h4>
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                            {formData.message || 'Notification message will appear here...'}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <Badge variant="outline" className="text-xs">
+                              {getCategoryLabel(formData.category)}
+                            </Badge>
+                            {formData.category === 'property-detail' && formData.propertyId && (
+                              <Badge variant="outline" className="text-xs">
+                                Property Selected
+                              </Badge>
+                            )}
+                            {formData.category === 'custom' && formData.customUrl && (
+                              <Badge variant="outline" className="text-xs">
+                                {formData.customUrl}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      {userSearchQuery && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
-                        </p>
+
+                      {/* Selected Users */}
+                      {selectedUsers.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-blue-200/50 dark:border-blue-700/50">
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                            Recipients ({selectedUsers.length})
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedUsers.slice(0, 5).map((user) => (
+                              <Badge key={user.id} variant="default" className="text-xs">
+                                {user.fullName || user.name || user.email}
+                              </Badge>
+                            ))}
+                            {selectedUsers.length > 5 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{selectedUsers.length - 5} more
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
+                  </div>
+                </Card>
+              )}
 
-                    {usersLoading ? (
-                      <div className="text-center py-4">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+              {rightPanelMode === 'sending' && (
+                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+                  <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                    <div className="relative">
+                      <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Send className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
-                    ) : filteredUsers.length === 0 ? (
-                      <p className="text-sm text-gray-500 text-center py-4">
-                        {userSearchQuery ? 'No users found matching your search' : 'No users found'}
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                        Sending Notification...
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Please wait while we send your notification
                       </p>
-                    ) : (
-                      filteredUsers.map((user) => {
-                        const isSelected = selectedUsers.some(u => u.id === user.id);
-                        return (
-                          <div
-                            key={user.id}
-                            onClick={() => handleUserToggle(user)}
-                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 ${
-                              isSelected ? 'bg-blue-50 border border-blue-200' : ''
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                              isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
-                            }`}>
-                              {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-medium">{user.fullName || user.name || user.email}</p>
-                              <p className="text-xs text-gray-500">{user.email}</p>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {rightPanelMode === 'success' && (
+                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-green-200/50 dark:border-green-700/50 shadow-lg">
+                  <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                    <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                      <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                        Sent Successfully!
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Your notification has been sent to all recipients
+                      </p>
+                    </div>
                   </div>
                 </Card>
               )}
             </div>
-            {selectedUsers.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedUsers.map((user) => (
-                  <Badge
-                    key={user.id}
-                    variant="default"
-                    className="flex items-center gap-1"
-                  >
-                    {user.fullName || user.name || user.email}
-                    <X
-                      className="w-3 h-3 cursor-pointer"
-                      onClick={() => handleUserToggle(user)}
-                    />
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Title <span className="text-red-500">*</span>
-            </label>
-            <Input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Enter notification title"
-              required
-            />
-          </div>
-
-          {/* Message */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Message <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              value={formData.message}
-              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-              placeholder="Enter notification message"
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Category (Redirect Route) <span className="text-red-500">*</span>
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {['properties', 'property-detail', 'portfolio', 'wallet', 'notifications', 'custom'].map((category) => {
-                const Icon = getCategoryIcon(category);
-                const isSelected = formData.category === category;
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => handleCategoryChange(category)}
-                    className={`p-4 border-2 rounded-lg text-left transition-all ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <p className={`text-sm font-medium ${isSelected ? 'text-blue-600' : 'text-gray-700'}`}>
-                      {getCategoryLabel(category)}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Property Selector (if property-detail category) */}
-          {formData.category === 'property-detail' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Property <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.propertyId}
-                onChange={(e) => setFormData({ ...formData, propertyId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
-                <option value="">Select a property...</option>
-                {properties.map((property) => (
-                  <option key={property.id} value={property.id || property.displayCode}>
-                    {property.title || property.name || property.displayCode}
-                  </option>
-                ))}
-              </select>
-            </div>
           )}
-
-          {/* Custom URL (if custom category) */}
-          {formData.category === 'custom' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Custom URL <span className="text-red-500">*</span>
-              </label>
-              <Input
-                type="text"
-                value={formData.customUrl}
-                onChange={(e) => setFormData({ ...formData, customUrl: e.target.value })}
-                placeholder="/custom-route or /properties/123"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">Enter a route path (e.g., /properties, /portfolio, /wallet)</p>
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setFormData({
-                  userIds: [],
-                  title: '',
-                  message: '',
-                  category: 'notifications',
-                  propertyId: '',
-                  customUrl: '',
-                });
-                setSelectedUsers([]);
-              }}
-            >
-              Reset
-            </Button>
-            <Button
-              type="submit"
-              disabled={sendNotificationMutation.isLoading}
-            >
-              <Send className="w-4 h-4 mr-2" />
-              {sendNotificationMutation.isLoading ? 'Sending...' : 'Send Notification'}
-            </Button>
-          </div>
-        </form>
-      </Card>
+        </div>
       ) : (
         <div className="space-y-6">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search notifications..."
-              value={notificationSearchQuery}
-              onChange={(e) => setNotificationSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
+          {/* Summary Cards Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="p-5 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Total Sent</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{notificationStats.total}</p>
+                </div>
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <Send className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-5 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Unread</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{notificationStats.unread}</p>
+                </div>
+                <div className="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+                  <Bell className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-5 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Status</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{notificationStats.active}</p>
+                </div>
+                <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-5 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Retried</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{notificationStats.failed}</p>
+                </div>
+                <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+              </div>
+            </Card>
           </div>
 
-          {/* Unread Notifications */}
-          {unreadNotifications.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-foreground">
-                  Recent ({unreadNotifications.length})
-                </h2>
+          {/* Tabs Bar */}
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="flex space-x-6">
+              {['all', 'unread', 'read', 'status', 'failed'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setViewTab(tab)}
+                  className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors capitalize ${viewTab === tab
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                    }`}
+                >
+                  {tab === 'all' ? 'All Notifications' : tab}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Filters Strip */}
+          <Card className="p-4 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div className="md:col-span-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search notifications..."
+                    value={viewFilters.search}
+                    onChange={(e) => setViewFilters({ ...viewFilters, search: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <select
+                  value={viewFilters.category}
+                  onChange={(e) => setViewFilters({ ...viewFilters, category: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                >
+                  <option value="">All Categories</option>
+                  <option value="Properties">Properties</option>
+                  <option value="Property Detail">Property Detail</option>
+                  <option value="Portfolio">Portfolio</option>
+                  <option value="Wallet">Wallet</option>
+                  <option value="Notifications">Notifications</option>
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={viewFilters.status}
+                  onChange={(e) => setViewFilters({ ...viewFilters, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                >
+                  <option value="">All Status</option>
+                  <option value="unread">Unread</option>
+                  <option value="read">Read</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <select
+                    value={viewFilters.date}
+                    onChange={(e) => setViewFilters({ ...viewFilters, date: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">All Dates</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="this-week">This Week</option>
+                    <option value="this-month">This Month</option>
+                    <option value="older">Older</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => markAllAsReadMutation.mutate()}
                   disabled={markAllAsReadMutation.isLoading}
+                  className="text-xs"
                 >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  {markAllAsReadMutation.isLoading ? 'Marking...' : 'Mark All as Read'}
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Mark All Read
                 </Button>
               </div>
-              <div className="space-y-3">
-                {unreadNotifications.map((notification) => (
-                  <Card
-                    key={notification.id}
-                    className={`p-4 cursor-pointer hover:bg-accent transition-colors border-l-4 border-l-primary`}
-                    onClick={() => {
-                      if (!notification.read) {
-                        markAsReadMutation.mutate(notification.id);
-                      }
-                    }}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-foreground">{notification.title}</h3>
-                          <span className="w-2 h-2 bg-primary rounded-full"></span>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">{notification.message}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Clock className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">
-                            {formatTime(notification.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
             </div>
-          )}
+          </Card>
 
-          {/* All Notifications */}
-          <div>
-            <h2 className="text-xl font-semibold text-foreground mb-4">
-              All Notifications ({filteredNotifications.length})
-            </h2>
-            {notificationsLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                <p className="text-muted-foreground mt-2">Loading notifications...</p>
-              </div>
-            ) : filteredNotifications.length === 0 ? (
-              <Card className="p-8 text-center">
-                <Bell className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <p className="text-muted-foreground">
-                  {notificationSearchQuery ? 'No notifications found matching your search' : 'No notifications found'}
-                </p>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {filteredNotifications.map((notification) => {
-                  const isUnread = !notification.read || notification.read === false;
-                  return (
-                    <Card
-                      key={notification.id}
-                      className={`p-4 cursor-pointer hover:bg-accent transition-colors ${
-                        isUnread ? 'border-l-4 border-l-primary' : ''
-                      }`}
-                      onClick={() => {
-                        if (isUnread) {
-                          markAsReadMutation.mutate(notification.id);
-                        }
-                      }}
+          {/* Main Content: List + Details Panel */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Left: Notification List */}
+            <div className={`space-y-4 transition-all duration-300 ${selectedNotification ? 'xl:col-span-2' : 'xl:col-span-3'
+              }`}>
+              {notificationsLoading ? (
+                <Card className="p-12 text-center bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Loading notifications...</p>
+                </Card>
+              ) : paginatedNotifications.length === 0 ? (
+                <Card className="p-12 text-center bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl">
+                  <Bell className="w-12 h-12 text-gray-400 mx-auto mb-4 opacity-50" />
+                  <p className="text-gray-600 dark:text-gray-400">No notifications found</p>
+                </Card>
+              ) : (
+                <>
+                  {groupNotificationsByDate(paginatedNotifications).map(([groupName, groupNotifications]) => (
+                    <div key={groupName} className="space-y-2">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 px-2">{groupName}</h3>
+                      {groupNotifications.map((notification) => {
+                        const isSelected = selectedNotification?.id === notification.id;
+                        const isUnread = notification.status === 'unread';
+                        return (
+                          <div
+                            key={notification.id}
+                            ref={(el) => {
+                              if (el) {
+                                notificationRefs.current[notification.id] = el;
+                              }
+                            }}
+                          >
+                            <Card
+                              className={`p-4 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border transition-all cursor-pointer relative ${isSelected
+                                  ? 'border-blue-500 dark:border-blue-400 shadow-lg'
+                                  : 'border-white/10 dark:border-slate-700/50 hover:border-gray-300 dark:hover:border-slate-600'
+                                }`}
+                              onClick={() => {
+                                setSelectedNotification(notification);
+                                // Auto-mark as read when clicked (if unread)
+                                if (!notification.read && !notification.is_read) {
+                                  markAsReadMutation.mutate(notification.id);
+                                }
+                              }}
+                            >
+                              <div className="flex items-start gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedNotifications.includes(notification.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedNotifications(prev =>
+                                      prev.includes(notification.id)
+                                        ? prev.filter(id => id !== notification.id)
+                                        : [...prev, notification.id]
+                                    );
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="mt-1 rounded border-gray-300"
+                                />
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                                  {React.createElement(getCategoryIcon(getCategoryKeyFromRoute(notification.redirect_route)), {
+                                    className: "w-4 h-4 text-blue-600 dark:text-blue-400"
+                                  })}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
+                                      {notification.title}
+                                    </h4>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${isUnread
+                                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-300'
+                                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-300'
+                                        }`}
+                                    >
+                                      {isUnread ? 'Unread' : 'Read'}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Badge variant="outline" className="text-xs">
+                                      {notification.category}
+                                    </Badge>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      {formatTime(notification.createdAt)}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+                                    {notification.message}
+                                  </p>
+                                </div>
+                                <div className="relative notification-menu overflow-visible">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenMenuId(openMenuId === notification.id ? null : notification.id);
+                                    }}
+                                    className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded transition-colors"
+                                    aria-label="More options"
+                                  >
+                                    <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                  </button>
+
+                                  {openMenuId === notification.id && (
+                                    <div
+                                      className="
+        absolute 
+        right-0 
+        top-[110%] 
+        w-48 
+        bg-white 
+        dark:bg-slate-800 
+        border 
+        border-gray-200 
+        dark:border-slate-700 
+        rounded-lg 
+        shadow-xl 
+        z-[9999]
+      "
+                                    >
+                                      {/* Mark as Read */}
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!notification.read && !notification.is_read) {
+                                            markAsReadMutation.mutate(notification.id);
+
+                                            const updatedNotification = {
+                                              ...notification,
+                                              read: true,
+                                              is_read: true,
+                                              status: "read",
+                                            };
+
+                                            if (selectedNotification?.id === notification.id) {
+                                              setSelectedNotification(updatedNotification);
+                                            }
+                                          }
+                                          setOpenMenuId(null);
+                                        }}
+                                        disabled={notification.read || notification.is_read}
+                                        className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 transition-colors
+          ${notification.read || notification.is_read
+                                            ? "opacity-50 cursor-not-allowed text-gray-500"
+                                            : "cursor-pointer text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                          }
+        `}
+                                      >
+                                        <CheckCircle className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                                        <span>
+                                          {notification.read || notification.is_read
+                                            ? "Already read"
+                                            : "Mark as read"}
+                                        </span>
+                                      </button>
+
+                                      {/* Delete */}
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          // Handle delete
+                                          setOpenMenuId(null);
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                        <span>Delete</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                              </div>
+                            </Card>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <Button
+                          key={page}
+                          variant={currentPage === page ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(page)}
+                          className={currentPage === page ? 'bg-blue-600 text-white' : ''}
+                        >
+                          {page}
+                        </Button>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Right: Details Panel */}
+            {selectedNotification && (
+              <div className="xl:col-span-1">
+                <Card className="p-6 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-slate-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Details</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedNotification(null)}
+                      className="h-8 w-8 p-0"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-foreground">{notification.title}</h3>
-                            {isUnread && <span className="w-2 h-2 bg-primary rounded-full"></span>}
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">{notification.message}</p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Clock className="w-3 h-3 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">
-                              {formatTime(notification.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Status</label>
+                      <Badge
+                        className={`${selectedNotification.status === 'unread'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                          }`}
+                      >
+                        {selectedNotification.status === 'unread' ? 'Unread' : 'Read'}
+                      </Badge>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Title</label>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{selectedNotification.title}</p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Category</label>
+                      <Badge variant="outline" className="text-xs">
+                        {selectedNotification.category}
+                      </Badge>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Sent Date & Time</label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {selectedNotification.createdAt
+                          ? new Date(selectedNotification.createdAt).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                          : 'N/A'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Message</label>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                        {selectedNotification.message}
+                      </p>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-200 dark:border-slate-700 space-y-3">
+                      <label className={`flex items-center gap-2 ${selectedNotification.read ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedNotification.read}
+                          disabled={selectedNotification.read}
+                          onChange={() => {
+                            if (!selectedNotification.read) {
+                              markAsReadMutation.mutate(selectedNotification.id);
+                              // Optimistically update
+                              setSelectedNotification({ ...selectedNotification, read: true, status: 'read' });
+                            }
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          {selectedNotification.read ? 'Already read' : 'Mark as read'}
+                        </span>
+                      </label>
+
+                      <Button
+                        variant="outline"
+                        className="w-full text-red-600 dark:text-red-400 border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => {
+                          // Handle delete
+                          setSelectedNotification(null);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
               </div>
             )}
           </div>

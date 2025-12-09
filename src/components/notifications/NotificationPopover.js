@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { Bell, Search, X, CheckCircle, Clock } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { adminAPI } from '../../services/api';
 import { API_BASE_URL } from '../../config/api';
 import { useAdminAuth } from '../admin/AdminAuth';
@@ -123,18 +123,12 @@ const NotificationPopover = ({ isOpen, onClose, anchorRef }) => {
   );
 
   const handleNotificationClick = (notification) => {
-    if (!notification.read) {
-      markAsReadMutation.mutate(notification.id);
-    }
-    
+    // Close the sidebar panel immediately
     onClose();
     
-    // Navigate based on notification data
-    if (notification.data?.url) {
-      navigate(notification.data.url);
-    } else if (notification.data?.propertyId) {
-      navigate(`/admin/property/${notification.data.propertyId}`);
-    }
+    // Navigate to AdminDashboard with notifications tab and selected notification
+    // This will open NotificationsManagement component with the selected notification
+    navigate(`/admin?tab=notifications&view=all&selected=${notification.id}`);
   };
 
   const handleMarkAllAsRead = () => {

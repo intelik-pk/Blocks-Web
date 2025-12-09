@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from 'react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -49,7 +49,28 @@ import NotificationsManagement from './NotificationsManagement';
 import Loader from '../../components/Loder';
 
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const { adminUser, isAuthenticated, logout } = useAdminAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  const validTabs = ['overview', 'properties', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
+  
+  // Read initial tab from URL synchronously during render
+  // Always use window.location.search for initial render to ensure we get the actual URL on refresh
+  const getInitialTabFromURL = () => {
+    if (typeof window === 'undefined') return 'overview';
+    // Always read from window.location.search for initial render (works on refresh)
+    const searchString = window.location.search || '';
+    const urlParams = new URLSearchParams(searchString);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && validTabs.includes(tabParam)) {
+      return tabParam;
+    }
+    return 'overview';
+  };
+  
+  // Initialize with tab from URL, or 'overview' as default
+  const [activeTab, setActiveTabState] = useState(() => getInitialTabFromURL());
   const [analyticsFilter, setAnalyticsFilter] = useState({
     period: '30d',
     from: null,
@@ -60,10 +81,20 @@ const AdminDashboard = () => {
   const [tabFilters, setTabFilters] = useState({}); // Store filters to apply when switching tabs
   const [showNotifications, setShowNotifications] = useState(false); // Notification popover state
   const notificationIconRef = useRef(null); // Notification icon ref
-  const { adminUser, isAuthenticated, logout } = useAdminAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  
+
+  // Wrapper function to update both state and URL
+  const setActiveTab = (tab) => {
+    if (!validTabs.includes(tab)) {
+      console.warn(`Invalid tab: ${tab}`);
+      return;
+    }
+    setActiveTabState(tab);
+    // Update URL without page reload
+    const urlParams = new URLSearchParams(location.search);
+    urlParams.set('tab', tab);
+    // Preserve other query parameters (like 'view', 'selected', etc.)
+    navigate(`/admin?${urlParams.toString()}`, { replace: true });
+  };
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -72,14 +103,34 @@ const AdminDashboard = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  // Handle URL parameters for tab navigation
+  // Track if we've initialized from URL to prevent overwriting on first render
+  const hasInitializedRef = useRef(false);
+  
+  // Sync tab from URL on mount and when URL changes (including refresh)
   useEffect(() => {
-    const urlParams = new URLSearchParams(location.search);
+    // Read from window.location.search to ensure we get the actual current URL (works on refresh)
+    const searchString = typeof window !== 'undefined' ? window.location.search : location.search;
+    const urlParams = new URLSearchParams(searchString);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['overview', 'properties', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'].includes(tabParam)) {
-      setActiveTab(tabParam);
+    
+    if (tabParam && validTabs.includes(tabParam)) {
+      // URL has a valid tab, sync state to match URL (this handles refresh and browser navigation)
+      if (tabParam !== activeTab) {
+        setActiveTabState(tabParam);
+      }
+      hasInitializedRef.current = true;
+    } else if (!tabParam && !hasInitializedRef.current) {
+      // No tab in URL on first load - add 'overview' to URL
+      urlParams.set('tab', 'overview');
+      navigate(`/admin?${urlParams.toString()}`, { replace: true });
+      hasInitializedRef.current = true;
+    } else if (!tabParam && hasInitializedRef.current) {
+      // URL lost tab parameter after initialization - restore it from state
+      urlParams.set('tab', activeTab || 'overview');
+      navigate(`/admin?${urlParams.toString()}`, { replace: true });
     }
-  }, [location.search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]); // Sync whenever URL changes (refresh, back/forward buttons)
 
   // Fetch dashboard statistics
   const { data: dashboardData, isLoading: dashboardLoading, error: dashboardError } = useQuery(
