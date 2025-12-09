@@ -837,6 +837,19 @@ const AdminDashboard = () => {
           }
           setActiveTab('users');
         };
+      } else if (activity.action === 'User Logged In') {
+        icon = Users;
+        color = 'blue';
+        onClick = () => {
+          // If we have user info, navigate to users page with filter
+          if (userDisplayCode) {
+            setTabFilters({ users: { search: userDisplayCode } });
+            setActiveTab('users');
+          } else if (userId) {
+            setTabFilters({ users: { search: userId } });
+            setActiveTab('users');
+          }
+        };
       } else if (activity.action === 'Reward Distributed') {
         icon = Gift;
         color = 'purple';
@@ -860,16 +873,43 @@ const AdminDashboard = () => {
                              (activity.description?.match(/for\s+([A-Z0-9-]+)/i)?.[1]);
       }
 
-      return {
-        id: activity.id,
-        type: activity.action?.toLowerCase().replace(/\s+/g, '_') || 'activity',
-        title: activity.action || `${activity.method} ${activity.endpoint}`,
-        description: (activity.description && 
+      // For login activities, ensure we show user name in description
+      let finalDescription = activity.description;
+      if (activity.action === 'User Logged In') {
+        // Prefer userName from activity, then description, then user from responseData
+        if (activity.userName) {
+          finalDescription = activity.userName;
+        } else if (activity.description && 
+                   activity.description !== activity.endpoint && 
+                   !activity.description.startsWith('/')) {
+          finalDescription = activity.description;
+        } else if (activity.responseData?.user?.fullName) {
+          finalDescription = activity.responseData.user.fullName;
+        } else if (activity.responseData?.user?.email) {
+          finalDescription = activity.responseData.user.email;
+        } else if (activity.responseData?.admin?.fullName) {
+          finalDescription = activity.responseData.admin.fullName;
+        } else if (activity.responseData?.admin?.email) {
+          finalDescription = activity.responseData.admin.email;
+        } else {
+          // Fallback based on userType
+          finalDescription = activity.userType === 'org_admin' ? 'ORG Admin' : 'User';
+        }
+      } else {
+        // For other activities, use existing logic
+        finalDescription = (activity.description && 
                       activity.description !== activity.endpoint && 
                       !activity.description.startsWith('/') &&
                       activity.description.length > 0)
           ? activity.description 
-          : (activity.action || 'Activity'),
+          : (activity.action || 'Activity');
+      }
+
+      return {
+        id: activity.id,
+        type: activity.action?.toLowerCase().replace(/\s+/g, '_') || 'activity',
+        title: activity.action || `${activity.method} ${activity.endpoint}`,
+        description: finalDescription,
         amount: activity.amount ? parseFloat(activity.amount.replace(/[^0-9.-]/g, '')) : 0,
         date: new Date(activity.createdAt),
         icon,

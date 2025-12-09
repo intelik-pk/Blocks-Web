@@ -1,14 +1,9 @@
 import React from 'react';
 import OrgAdminNotificationIcon from './OrgAdminNotificationIcon';
 
-// Safe wrapper to prevent crashes
+// Safe wrapper component
 const SafeOrgAdminNotificationIcon = () => {
-  try {
-    return <OrgAdminNotificationIcon />;
-  } catch (error) {
-    console.error('OrgAdminNotificationIcon error:', error);
-    return null;
-  }
+  return <OrgAdminNotificationIcon />;
 };
 
 export default SafeOrgAdminNotificationIcon;
