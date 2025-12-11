@@ -37,6 +37,7 @@ import { adminAPI, rewardsAPI, activitiesAPI } from '../../services/api';
 import { useMutation, useQueryClient } from 'react-query';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import PropertiesManagement from './PropertiesManagement';
+import PropertyRequestsManagement from './PropertyRequestsManagement';
 import UsersManagement from './UsersManagement';
 import TransactionsManagement from './TransactionsManagement';
 import InvestmentsManagement from './InvestmentsManagement';
@@ -76,7 +77,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['overview', 'properties', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'].includes(tabParam)) {
+    if (tabParam && ['overview', 'properties', 'property-requests', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [location.search]);
@@ -1509,6 +1510,8 @@ const AdminDashboard = () => {
       case 'properties':
         console.log('📦 Rendering PropertiesManagement');
         return <PropertiesManagement initialFilters={tabFilters.properties} onFiltersSet={() => setTabFilters({ ...tabFilters, properties: undefined })} />;
+      case 'property-requests':
+        return <PropertyRequestsManagement />;
       case 'users':
         return <UsersManagement initialFilters={tabFilters.users} onFiltersSet={() => setTabFilters({ ...tabFilters, users: undefined })} />;
       case 'transactions':

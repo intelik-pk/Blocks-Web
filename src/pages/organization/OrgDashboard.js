@@ -22,6 +22,7 @@ import SafeOrgAdminNotificationIcon from '../../components/organization/SafeOrgA
 import { organizationsAPI, adminAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
 import OrgPropertiesManagement from './OrgPropertiesManagement';
+import OrgPropertyRequestsManagement from './OrgPropertyRequestsManagement';
 import OrgUsersManagement from './OrgUsersManagement';
 import OrgTransactionsManagement from './OrgTransactionsManagement';
 import OrgInvestmentsManagement from './OrgInvestmentsManagement';
@@ -468,6 +469,7 @@ const OrgDashboard = () => {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'properties', label: 'Properties', icon: Building2 },
+    { id: 'property-requests', label: 'Property Requests', icon: Building2 },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'transactions', label: 'Transactions', icon: DollarSign },
     { id: 'investments', label: 'Investments', icon: TrendingUp },
@@ -528,6 +530,8 @@ const OrgDashboard = () => {
     switch (activeTab) {
       case 'properties':
         return <OrgPropertiesManagement organizationId={organizationId} />;
+      case 'property-requests':
+        return <OrgPropertyRequestsManagement organizationId={organizationId} />;
       case 'users':
         return <OrgUsersManagement organizationId={organizationId} />;
       case 'transactions':

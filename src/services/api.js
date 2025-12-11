@@ -390,6 +390,47 @@ export const activitiesAPI = {
   deleteAll: () => api.delete('/activities'), // DELETE /activities - Delete all activities
 };
 
+// Property Requests API
+export const propertyRequestsAPI = {
+  // ORG Admin: Create property request
+  create: (data, orgAdminId) => {
+    // Include orgAdminId in body or header
+    const config = orgAdminId ? { headers: { 'x-org-admin-id': orgAdminId } } : {};
+    return api.post('/property-requests', { ...data, orgAdminId }, config);
+  },
+  
+  // Get all property requests (filtered by org if orgAdminId provided)
+  getAll: (orgAdminId) => {
+    const config = orgAdminId ? { headers: { 'x-org-admin-id': orgAdminId } } : {};
+    return api.get('/property-requests', config);
+  },
+  
+  // Get single property request
+  getById: (id, orgAdminId) => {
+    const config = orgAdminId ? { headers: { 'x-org-admin-id': orgAdminId } } : {};
+    return api.get(`/property-requests/${id}`, config);
+  },
+  
+  // Blocks Admin: Approve property request
+  approve: (id, adminId, data) => {
+    const config = adminId ? { headers: { 'x-admin-id': adminId } } : {};
+    return api.patch(`/property-requests/${id}/status`, { ...data, status: 'approved', adminId }, config);
+  },
+  
+  // Blocks Admin: Reject property request
+  reject: (id, adminId, rejectionReason) => {
+    const config = adminId ? { headers: { 'x-admin-id': adminId } } : {};
+    return api.patch(`/property-requests/${id}/status`, { status: 'rejected', rejectionReason, adminId }, config);
+  },
+  
+  // Update status (generic)
+  updateStatus: (id, status, rejectionReason) => {
+    const data = { status };
+    if (rejectionReason) data.rejectionReason = rejectionReason;
+    return api.patch(`/property-requests/${id}/status`, data);
+  },
+};
+
 // Upload API (File uploads)
 export const uploadAPI = {
   // Upload single image

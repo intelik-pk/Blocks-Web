@@ -26,6 +26,7 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
   const mainMenuItems = [
     { id: 'overview', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'properties', icon: Building2, label: 'Properties' },
+    { id: 'property-requests', icon: Building2, label: 'Property Requests' },
     { id: 'investments', icon: BarChart3, label: 'Investments' },
     { id: 'users', icon: Users, label: 'Users' },
     { id: 'transactions', icon: Archive, label: 'Transactions' },
