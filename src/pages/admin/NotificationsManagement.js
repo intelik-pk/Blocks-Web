@@ -1546,7 +1546,7 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
                                           // Handle delete
                                           setOpenMenuId(null);
                                         }}
-                                        className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors cursor-pointer"
+                                        className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors cursor-pointer"t
                                       >
                                         <Trash2 className="w-4 h-4" />
                                         <span>Delete</span>
