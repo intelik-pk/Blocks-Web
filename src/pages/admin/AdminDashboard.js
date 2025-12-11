@@ -54,7 +54,7 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const validTabs = ['overview', 'properties', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
+  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
   
   // Read initial tab from URL synchronously during render
   // Always use window.location.search for initial render to ensure we get the actual URL on refresh
