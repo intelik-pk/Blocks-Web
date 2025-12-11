@@ -169,9 +169,29 @@ const OrganizationsManagement = () => {
           <Card key={org.id} className="p-6">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-100 rounded-lg">
-                  <Building2 className="w-6 h-6 text-blue-600" />
-                </div>
+                {/* Organization Logo */}
+                {org.logoUrl && org.logoUrl.trim() && org.logoUrl !== 'https://example.com/logo.png' ? (
+                  <div className="relative">
+                    <img
+                      src={org.logoUrl}
+                      alt={`${org.name} logo`}
+                      className="w-12 h-12 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shadow-sm"
+                      onError={(e) => {
+                        // If image fails to load, show fallback icon
+                        e.target.style.display = 'none';
+                        const fallback = e.target.nextElementSibling;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                    <div className="hidden p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                      <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                  </div>
+                )}
                 <div>
                   <h3 className="text-lg font-semibold text-card-foreground">{org.name}</h3>
                   <p className="text-sm text-muted-foreground">{org.displayCode}</p>

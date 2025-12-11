@@ -534,12 +534,14 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
       {/* Main Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 relative transition-all duration-300">
         {/* LEFT SIDE: Filters + User List */}
-        <div className={cn(
-          "transition-all duration-300 space-y-4",
-          actionPanel ? "lg:col-span-5" : "lg:col-span-12"
-        )}>
+        <div 
+          className={cn(
+            "transition-all duration-300 space-y-4 lg:max-h-[calc(80vh-2rem)] overflow-y-auto",
+            actionPanel ? "lg:col-span-5" : "lg:col-span-12"
+          )}
+        >
           {/* Filters */}
-          <Card variant="primary" className="p-6">
+          <Card variant="primary" className="p-6 lg:sticky lg:top-0 lg:z-10">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center space-x-2">
                 <Filter className="w-5 h-5 text-muted-foreground" />
@@ -844,7 +846,8 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
                 <span className="text-xl">⋯</span>
               </button>
             </div>
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+            {/* <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2"> */}
+            <div className="space-y-2 overflow-y-auto pr-2">
               {filteredUsers.length === 0 ? (
                 <div className="flex flex-col items-center py-12">
                   <Users className="w-12 h-12 text-gray-400 mb-4 opacity-50" />
@@ -913,7 +916,7 @@ const UsersManagement = ({ initialFilters, onFiltersSet }) => {
           <div className={cn(
             "lg:col-span-7 rounded-xl shadow-lg p-6",
             "transition-all duration-300",
-            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(80vh-2rem)] lg:overflow-y-auto"
           )}>
             {fullUserLoading ? (
               <div className="flex items-center justify-center py-12">

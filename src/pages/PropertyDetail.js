@@ -557,7 +557,20 @@ const PropertyDetail = () => {
         <div className="mb-8">
           <div className="flex items-start justify-between mb-4">
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-card-foreground mb-2">{property.title || property.name}</h1>
+              <div className="flex items-center gap-3 mb-2">
+                {/* Organization Logo */}
+                {(property.organization?.logoUrl || property.organization?.logo_url || property.organizationLogoUrl) && (
+                  <img
+                    src={property.organization?.logoUrl || property.organization?.logo_url || property.organizationLogoUrl}
+                    alt={property.organization?.name || 'Organization logo'}
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                )}
+                <h1 className="text-3xl font-bold text-card-foreground">{property.title || property.name}</h1>
+              </div>
               <div className="flex items-center space-x-4">
                 <div className="flex items-center text-muted-foreground">
                   <MapPin className="w-4 h-4 mr-1" />

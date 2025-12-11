@@ -774,9 +774,22 @@ const PropertyDetail = () => {
                 <ArrowLeft className="w-4 h-4" />
                 <span>Back to Admin</span>
               </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || 'Property Details'}</h1>
-                <p className="text-sm text-muted-foreground">{property.city || property.location_city || property.location || 'Location not specified'}</p>
+              <div className="flex items-center gap-3">
+                {/* Organization Logo */}
+                {(property.organization?.logoUrl || property.organization?.logo_url || property.organizationLogoUrl) && (
+                  <img
+                    src={property.organization?.logoUrl || property.organization?.logo_url || property.organizationLogoUrl}
+                    alt={property.organization?.name || 'Organization logo'}
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                )}
+                <div>
+                  <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || 'Property Details'}</h1>
+                  <p className="text-sm text-muted-foreground">{property.city || property.location_city || property.location || 'Location not specified'}</p>
+                </div>
               </div>
             </div>
             <div className="flex items-center space-x-4">

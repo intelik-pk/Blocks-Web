@@ -702,7 +702,7 @@ const KYCManagement = ({ initialUserId }) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -746,7 +746,7 @@ const KYCManagement = ({ initialUserId }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 relative transition-all duration-300">
         {/* LEFT SIDE: Stats + Filters + KYC List */}
         <div className={cn(
-          "transition-all duration-300 space-y-4",
+          "transition-all duration-300 space-y-4 lg:max-h-[calc(80vh-2rem)] rounded-lg overflow-y-auto",
           actionPanel ? "lg:col-span-5" : "lg:col-span-12"
         )}>
       {/* Auto-Approve Control Bar */}
@@ -848,7 +848,7 @@ const KYCManagement = ({ initialUserId }) => {
       </div>
 
       {/* Filters */}
-      <Card className="p-6">
+      <Card className="p-6 lg:sticky lg:top-0 lg:z-10">
         <form 
           onSubmit={(e) => {
             e.preventDefault();
@@ -929,7 +929,7 @@ const KYCManagement = ({ initialUserId }) => {
                 KYC Users ({filteredKYCs.length})
               </h3>
             </div>
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+            <div className="space-y-2 max-h-[500px] pr-2">
               {filteredKYCs.length === 0 ? (
                 <div className="flex flex-col items-center py-12">
                   <Shield className="w-12 h-12 text-gray-400 mb-4 opacity-50" />
@@ -1003,7 +1003,7 @@ const KYCManagement = ({ initialUserId }) => {
           <div className={cn(
             "lg:col-span-7 rounded-xl shadow-lg p-6",
             "transition-all duration-300",
-            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(80vh-2rem)] lg:overflow-y-auto"
           )}>
             {fullUserLoading ? (
               <div className="flex items-center justify-center py-12">
@@ -1291,131 +1291,7 @@ const KYCManagement = ({ initialUserId }) => {
         )}
       </div>
 
-      {/* Original KYC Table - Hidden when sidebar is open */}
-      {!actionPanel && (
-      <Card className="p-6">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    checked={selectedKYCs.length > 0 && selectedKYCs.length === filteredKYCs.flatMap(g => g.documents.map(d => d.id)).length}
-                    onChange={toggleSelectAll}
-                    className="rounded border-border"
-                  />
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">User</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Document Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Submitted</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Reviewed</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filteredKYCs.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="px-4 py-8 text-center text-muted-foreground">
-                    <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                    <p>No KYC verifications found</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredKYCs.flatMap(group => 
-                  group.documents.map((kyc) => {
-                    const TypeIcon = getTypeIcon(kyc.type);
-                    return (
-                      <tr key={kyc.id} className="hover:bg-accent/50">
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedKYCs.includes(kyc.id)}
-                            onChange={() => toggleSelectKYC(kyc.id)}
-                            className="rounded border-border"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-  <div>
-    <p className="font-medium text-card-foreground">
-      {/* Use the displayCode from the user object, falling back to UUID if not found */}
-      {group.user?.displayCode || kyc.userId}
-    </p>
-    {group.user?.email && (
-      <p className="text-sm text-muted-foreground">{group.user.email}</p>
-    )}
-  </div>
-</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <TypeIcon className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm text-card-foreground">{getTypeLabel(kyc.type)}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {getStatusBadge(kyc.status)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-sm text-card-foreground">{formatDate(kyc.submittedAt || kyc.createdAt)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-sm text-card-foreground">{formatDate(kyc.reviewedAt)}</p>
-                          {kyc.reviewer && (
-                            <p className="text-xs text-muted-foreground">{kyc.reviewer}</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            {/* Review Button - Show for first document of each user group */}
-                            {group.documents[0]?.id === kyc.id && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleReview(group)}
-                                className="text-blue-600 hover:bg-blue-50"
-                                title="Review All Documents"
-                              >
-                                <FileCheck className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {kyc.status !== 'verified' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleApprove(kyc)}
-                                className="text-green-600 hover:bg-green-50"
-                                disabled={updateKYCStatusMutation.isLoading}
-                                title="Approve"
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {kyc.status !== 'rejected' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleReject(kyc)}
-                                className="text-red-600 hover:bg-red-50"
-                                disabled={updateKYCStatusMutation.isLoading}
-                                title="Reject"
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      )}
-
+     
       {/* Document Viewer Modal */}
       {showDocumentModal && selectedKYC && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">

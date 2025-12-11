@@ -65,9 +65,7 @@ const NotificationIcon = () => {
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
-        {isSupported && !isSubscribed && (
-          <span className="absolute top-0 right-0 inline-flex items-center justify-center w-2 h-2 transform translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full border-2 border-white"></span>
-        )}
+       
       </button>
     </div>
   );

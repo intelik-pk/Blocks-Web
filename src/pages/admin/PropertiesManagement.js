@@ -141,6 +141,17 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     }
   );
 
+  // Fetch organizations to enrich properties with logo data
+  const { data: organizationsData } = useQuery(
+    ['admin-organizations'],
+    () => adminAPI.getOrganizations({ limit: 1000 }),
+    {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      enabled: isAuthenticated
+    }
+  );
+
   // Fetch properties
   const { data: propertiesData, isLoading, error } = useQuery(
     ['admin-properties'],
@@ -153,6 +164,53 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       enabled: isAuthenticated
     }
   );
+
+  // Helper function to get organization logo from property
+  const getOrganizationLogo = (property) => {
+    // First check if organization object is already populated
+    if (property.organization?.logoUrl) {
+      console.log('✅ Found logoUrl in property.organization.logoUrl:', property.organization.logoUrl);
+      return property.organization.logoUrl;
+    }
+    if (property.organization?.logo_url) {
+      console.log('✅ Found logoUrl in property.organization.logo_url:', property.organization.logo_url);
+      return property.organization.logo_url;
+    }
+    if (property.organizationLogoUrl) {
+      console.log('✅ Found logoUrl in property.organizationLogoUrl:', property.organizationLogoUrl);
+      return property.organizationLogoUrl;
+    }
+    
+    // If not, try to find organization from fetched organizations list
+    if (organizationsData?.data?.data?.organizations || organizationsData?.data?.organizations || organizationsData?.data) {
+      const orgs = organizationsData?.data?.data?.organizations || organizationsData?.data?.organizations || (Array.isArray(organizationsData?.data) ? organizationsData.data : []);
+      const orgId = property.organizationId || property.organization_id || property.organization?.id || property.organization?.displayCode;
+      
+      console.log('🔍 Looking for organization with ID:', orgId, 'in', orgs.length, 'organizations');
+      
+      if (orgId && orgs.length > 0) {
+        const org = orgs.find(o => 
+          o.id === orgId || 
+          o.displayCode === orgId ||
+          String(o.id) === String(orgId) ||
+          String(o.displayCode) === String(orgId)
+        );
+        
+        if (org) {
+          console.log('✅ Found organization:', org.name, 'logoUrl:', org.logoUrl || org.logo_url);
+          if (org.logoUrl) return org.logoUrl;
+          if (org.logo_url) return org.logo_url;
+        } else {
+          console.log('❌ Organization not found for ID:', orgId);
+        }
+      }
+    } else {
+      console.log('⚠️ Organizations data not loaded yet');
+    }
+    
+    console.log('❌ No logo URL found for property:', property.title);
+    return null;
+  };
 
   // Update property status mutation - PATCH only the status field
   const updateStatusMutation = useMutation(
@@ -1119,11 +1177,11 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 relative transition-all duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)]">
         {/* LEFT SIDE: Filters + Table */}
         <div className={cn(
-          "transition-all duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)] space-y-4",
+          "transition-all duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)] space-y-4 lg:max-h-[calc(80vh-2rem)] rounded-lg p-2",
           actionPanel ? "lg:col-span-7" : "lg:col-span-12"
         )}>
           {/* Filters - Always Visible */}
-          <Card variant="primary" className="p-6">
+          <Card variant="primary" className="p-6 ">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center space-x-2">
             <Filter className="w-5 h-5 text-muted-foreground" />
@@ -1440,7 +1498,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       </Card>
 
           {/* Properties Grid */}
-          <div className="min-h-[400px]">
+          <div className="min-h-[400px] max-h-[calc(60vh-2rem)] overflow-y-auto p-2">
             {properties.length === 0 ? (
               <Card variant="primary" className="p-12">
                 <div className="flex flex-col items-center text-center">
@@ -1582,9 +1640,25 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                     <div className="p-4 space-y-3">
                       {/* Title and Location */}
                       <div>
-                        <h3 className="text-base font-bold text-card-foreground truncate group-hover:text-primary transition-colors">
-                          {mappedProperty.title}
-                        </h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          {/* Organization Logo */}
+                          {(() => {
+                            const logoUrl = getOrganizationLogo(property);
+                            return logoUrl ? (
+                              <img
+                                src={logoUrl}
+                                alt="Organization logo"
+                                className="w-6 h-6 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                            ) : null;
+                          })()}
+                          <h3 className="text-base font-bold text-card-foreground truncate group-hover:text-primary transition-colors flex-1">
+                            {mappedProperty.title}
+                          </h3>
+                        </div>
                         <div className="flex items-center mt-1 text-xs text-muted-foreground">
                           <MapPin className="w-3 h-3 mr-1 flex-shrink-0" />
                           <span className="truncate">{mappedProperty.location_city}</span>
@@ -1639,7 +1713,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
             "transition-all duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)]",
             "opacity-100 translate-x-0 translate-y-0",
             "md:translate-y-0",
-            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(80vh-2rem)] lg:overflow-y-auto"
           )}>
             {/* Panel Header - Only show for non-full-details actions */}
             {actionPanel !== 'full-details' && actionPanel !== 'edit' && actionPanel !== 'funding' && (
@@ -1675,7 +1749,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
               {/* Edit Property Form */}
               {actionPanel === 'edit' && editingProperty && (
-                <div className="space-y-4">
+                <div className="space-y-4 border border-red-500">
                   {/* Back to Details Button - Only show if we came from details view */}
                   {(panelHistory.length > 0 || selectedPropertyId) && (
                     <div className="flex items-center justify-between pb-3 border-b border-border/50 mb-4">

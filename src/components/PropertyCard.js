@@ -151,9 +151,36 @@ const PropertyCard = ({ property, onInvest }) => {
       )}
       
       <div className="p-4 flex-1 flex flex-col">
-        <h3 className="text-xl font-semibold text-card-foreground mb-2 line-clamp-2">
-          {property.title}
-        </h3>
+        {/* Organization Logo and Title */}
+        <div className="flex items-start gap-2 mb-2">
+          {/* Organization Logo */}
+          {(() => {
+            const logoUrl = property.organization?.logoUrl || 
+                           property.organization?.logo_url || 
+                           property.organizationLogoUrl ||
+                           (property.organization && typeof property.organization === 'object' && property.organization.logoUrl) ||
+                           null;
+            
+            // Only render if we have a valid URL
+            if (logoUrl && typeof logoUrl === 'string' && logoUrl.trim().length > 0) {
+              return (
+                <img
+                  src={logoUrl}
+                  alt={property.organization?.name || 'Organization logo'}
+                  className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+                  onError={(e) => {
+                    // Hide the image if it fails to load
+                    e.target.style.display = 'none';
+                  }}
+                />
+              );
+            }
+            return null;
+          })()}
+          <h3 className="text-xl font-semibold text-card-foreground line-clamp-2 flex-1">
+            {property.title}
+          </h3>
+        </div>
         
         <p className="text-muted-foreground text-sm mb-3 line-clamp-2">
           {property.shortDescription || property.description || 'No description available'}
