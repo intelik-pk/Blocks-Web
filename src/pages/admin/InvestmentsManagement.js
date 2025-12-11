@@ -60,8 +60,8 @@ const InvestmentsManagement = () => {
   
   const [filters, setFilters] = useState({
     search: '',
-    status: '',
-    property: '',
+    status: [], // Changed to array for multi-select
+    property: [], // Changed to array for multi-select
     sort_by: 'created_at',
     sort_order: 'desc'
   });
@@ -425,6 +425,29 @@ const InvestmentsManagement = () => {
     setCurrentPage(1);
   };
 
+  // Toggle filter value for multi-select (status and property)
+  const toggleMultiFilter = (filterKey, value) => {
+    setFilters(prev => {
+      const currentArray = Array.isArray(prev[filterKey]) ? prev[filterKey] : [];
+      const isSelected = currentArray.includes(value);
+      
+      if (isSelected) {
+        // Remove from array
+        return {
+          ...prev,
+          [filterKey]: currentArray.filter(v => v !== value)
+        };
+      } else {
+        // Add to array
+        return {
+          ...prev,
+          [filterKey]: [...currentArray, value]
+        };
+      }
+    });
+    setCurrentPage(1);
+  };
+
   // Frontend filtering logic
   const filteredInvestments = useMemo(() => {
     let filtered = [...investments];
@@ -447,23 +470,25 @@ const InvestmentsManagement = () => {
       });
     }
     
-    // Status filter
-    if (filters.status && filters.status.trim()) {
+    // Status filter (multi-select)
+    if (Array.isArray(filters.status) && filters.status.length > 0) {
       filtered = filtered.filter(investment => {
         const investmentStatus = (investment.status || '').toLowerCase();
-        const filterStatus = filters.status.toLowerCase();
-        return investmentStatus === filterStatus;
+        return filters.status.some(filterStatus => 
+          investmentStatus === filterStatus.toLowerCase()
+        );
       });
     }
     
-    // Property filter
-    if (filters.property && filters.property.trim()) {
+    // Property filter (multi-select)
+    if (Array.isArray(filters.property) && filters.property.length > 0) {
       filtered = filtered.filter(investment => {
         const propertyTitle = (investment.property?.title || investment.property_title || '').toLowerCase();
         const propertySlug = (investment.property?.slug || '').toLowerCase();
-        const filterProperty = filters.property.toLowerCase();
-        return propertyTitle.includes(filterProperty) ||
-               propertySlug.includes(filterProperty);
+        return filters.property.some(filterProperty => {
+          const filterLower = filterProperty.toLowerCase();
+          return propertyTitle.includes(filterLower) || propertySlug.includes(filterLower);
+        });
       });
     }
     
@@ -516,7 +541,7 @@ const InvestmentsManagement = () => {
   
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters.search, filters.status, filters.property, filters.sort_by]);
+  }, [filters.search, filters.status, filters.property, filters.sort_by, filters.sort_order]);
 
   const getStatusBadge = (status) => {
     const statusMap = {
@@ -565,28 +590,19 @@ const InvestmentsManagement = () => {
 
   const activeFiltersCount = [
     filters.search,
-    filters.status,
-    filters.property,
+    ...(Array.isArray(filters.status) ? filters.status : []),
+    ...(Array.isArray(filters.property) ? filters.property : []),
     filters.sort_by !== 'created_at' || filters.sort_order !== 'desc'
   ].filter(Boolean).length;
 
   const clearAllFilters = () => {
     setFilters({
       search: '',
-      status: '',
-      property: '',
+      status: [],
+      property: [],
       sort_by: 'created_at',
       sort_order: 'desc'
     });
-  };
-
-  const toggleFilter = (filterKey, value) => {
-    const currentValue = filters[filterKey];
-    if (currentValue === value) {
-      setFilters(prev => ({ ...prev, [filterKey]: '' }));
-    } else {
-      setFilters(prev => ({ ...prev, [filterKey]: value }));
-    }
   };
 
   if (!isAuthenticated) {
@@ -1123,9 +1139,9 @@ const InvestmentsManagement = () => {
                   <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
                     <span className="w-1 h-4 bg-blue-600 rounded-full"></span>
                     Status
-                    {filters.status && (
+                    {Array.isArray(filters.status) && filters.status.length > 0 && (
                       <span className="ml-2 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium">
-                        Selected
+                        {filters.status.length} selected
                       </span>
                     )}
                   </h4>
@@ -1136,12 +1152,12 @@ const InvestmentsManagement = () => {
                       { value: 'completed', label: 'Completed' },
                       { value: 'cancelled', label: 'Cancelled' }
                     ].map((option) => {
-                      const isActive = filters.status === option.value;
+                      const isActive = Array.isArray(filters.status) && filters.status.includes(option.value);
                       return (
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => toggleFilter('status', option.value)}
+                          onClick={() => toggleMultiFilter('status', option.value)}
                           className={cn(
                             "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
                             isActive
@@ -1155,6 +1171,15 @@ const InvestmentsManagement = () => {
                       );
                     })}
                   </div>
+                  {Array.isArray(filters.status) && filters.status.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilters(prev => ({ ...prev, status: [] }))}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Clear status filters
+                    </button>
+                  )}
                 </div>
 
                 {/* Property Filter */}
@@ -1163,9 +1188,9 @@ const InvestmentsManagement = () => {
                     <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
                       <span className="w-1 h-4 bg-green-600 rounded-full"></span>
                       Property
-                      {filters.property && (
+                      {Array.isArray(filters.property) && filters.property.length > 0 && (
                         <span className="ml-2 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-medium">
-                          Selected
+                          {filters.property.length} selected
                         </span>
                       )}
                     </h4>
@@ -1214,12 +1239,12 @@ const InvestmentsManagement = () => {
                       }
                       
                       return filteredProperties.map((property) => {
-                        const isActive = filters.property === property;
+                        const isActive = Array.isArray(filters.property) && filters.property.includes(property);
                         return (
                           <button
                             key={property}
                             type="button"
-                            onClick={() => toggleFilter('property', property)}
+                            onClick={() => toggleMultiFilter('property', property)}
                             className={cn(
                               "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
                               isActive
@@ -1243,6 +1268,15 @@ const InvestmentsManagement = () => {
                     <p className="text-xs text-muted-foreground">
                       Showing {uniqueProperties.filter(p => p.toLowerCase().includes(propertySearchTerm.toLowerCase())).length} of {uniqueProperties.length} properties
                     </p>
+                  )}
+                  {Array.isArray(filters.property) && filters.property.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilters(prev => ({ ...prev, property: [] }))}
+                      className="text-xs text-green-600 dark:text-green-400 hover:underline"
+                    >
+                      Clear property filters
+                    </button>
                   )}
                 </div>
 
@@ -1317,25 +1351,27 @@ const InvestmentsManagement = () => {
                 </div>
               )}
               
-              {filters.status && (
+              {Array.isArray(filters.status) && filters.status.length > 0 && filters.status.map((status) => (
                 <div 
+                  key={status}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors shadow-sm"
-                  onClick={() => handleFilterChange('status', '')}
+                  onClick={() => toggleMultiFilter('status', status)}
                 >
-                  <span>Status: {filters.status}</span>
+                  <span>Status: {status}</span>
                   <X className="w-3 h-3" />
                 </div>
-              )}
+              ))}
               
-              {filters.property && (
+              {Array.isArray(filters.property) && filters.property.length > 0 && filters.property.map((property) => (
                 <div 
+                  key={property}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
-                  onClick={() => handleFilterChange('property', '')}
+                  onClick={() => toggleMultiFilter('property', property)}
                 >
-                  <span>Property: {filters.property}</span>
+                  <span>Property: {property}</span>
                   <X className="w-3 h-3" />
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>

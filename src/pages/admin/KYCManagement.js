@@ -22,22 +22,21 @@ import {
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Input from '../../components/ui/Input';
 import { API_BASE_URL } from '../../config/api';
 import { adminAPI, usersAPI, walletTransactionsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
 import { cn } from '../../utils/cn';
+import KYCFilters from '../../components/kyc/KYCFilters';
 
 const KYCManagement = ({ initialUserId }) => {
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   
-  const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState({
     search: '',
-    status: '',
-    type: '',
+    status: [], // Changed to array for multi-select
+    type: [], // Changed to array for multi-select
     sort_by: 'submittedAt',
     sort_order: 'desc'
   });
@@ -61,14 +60,11 @@ const KYCManagement = ({ initialUserId }) => {
     return saved === 'true';
   });
 
-  // Debounce search input - only update filters, no API call
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setFilters(prev => ({ ...prev, search: searchInput }));
-    }, 300); // 300ms delay
-
-    return () => clearTimeout(timer);
-  }, [searchInput]);
+  // Handle filter changes
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  };
 
   // Fetch all KYC verifications - fetch all data once, filter client-side
   const { data: kycData, isLoading: kycLoading } = useQuery(
@@ -213,7 +209,7 @@ const KYCManagement = ({ initialUserId }) => {
 
   // Filter grouped KYCs
   const filteredKYCs = useMemo(() => {
-    return groupedKYCs.filter(group => {
+    let filtered = groupedKYCs.filter(group => {
       if (filters.search) {
         const searchLower = filters.search.toLowerCase();
         const user = group.user;
@@ -225,19 +221,61 @@ const KYCManagement = ({ initialUserId }) => {
         if (!matchesSearch) return false;
       }
       
-      if (filters.status) {
-        if (filters.status === 'pending' && group.overallStatus !== 'pending') return false;
-        if (filters.status === 'verified' && group.overallStatus !== 'verified') return false;
-        if (filters.status === 'rejected' && group.overallStatus !== 'rejected') return false;
+      // Status filter (multi-select)
+      if (Array.isArray(filters.status) && filters.status.length > 0) {
+        const matchesStatus = filters.status.some(filterStatus => 
+          group.overallStatus === filterStatus
+        );
+        if (!matchesStatus) return false;
       }
 
-      if (filters.type) {
-        const hasType = group.documents.some(d => d.type === filters.type);
+      // Type filter (multi-select)
+      if (Array.isArray(filters.type) && filters.type.length > 0) {
+        const hasType = group.documents.some(d => 
+          filters.type.includes(d.type)
+        );
         if (!hasType) return false;
       }
       
       return true;
     });
+
+    // Apply sorting
+    if (filters.sort_by) {
+      filtered.sort((a, b) => {
+        let aValue, bValue;
+        
+        switch (filters.sort_by) {
+          case 'submittedAt':
+            // Get the earliest submitted date from documents
+            const aDates = a.documents.map(d => new Date(d.submittedAt || d.createdAt || d.created_at || 0));
+            const bDates = b.documents.map(d => new Date(d.submittedAt || d.createdAt || d.created_at || 0));
+            aValue = aDates.length > 0 ? Math.min(...aDates.map(d => d.getTime())) : 0;
+            bValue = bDates.length > 0 ? Math.min(...bDates.map(d => d.getTime())) : 0;
+            break;
+          case 'status':
+            const statusOrder = { 'verified': 1, 'pending': 2, 'rejected': 3 };
+            aValue = statusOrder[a.overallStatus] || 0;
+            bValue = statusOrder[b.overallStatus] || 0;
+            break;
+          case 'type':
+            // Sort by first document type alphabetically
+            aValue = (a.documents[0]?.type || '').toLowerCase();
+            bValue = (b.documents[0]?.type || '').toLowerCase();
+            break;
+          default:
+            return 0;
+        }
+        
+        if (filters.sort_order === 'asc') {
+          return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+        } else {
+          return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
+        }
+      });
+    }
+    
+    return filtered;
   }, [groupedKYCs, filters]);
 
   // Update KYC status mutation - using actual API structure
@@ -848,79 +886,10 @@ const KYCManagement = ({ initialUserId }) => {
       </div>
 
       {/* Filters */}
-      <Card className="p-6 lg:sticky lg:top-0 lg:z-10">
-        <form 
-          onSubmit={(e) => {
-            e.preventDefault();
-            return false;
-          }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-4"
-        >
-          <div>
-            <Input
-              type="text"
-              placeholder="Search by name, email, user ID..."
-              value={searchInput}
-              onChange={(e) => {
-                setSearchInput(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }
-              }}
-              icon={<Search className="h-4 w-4 text-muted-foreground" />}
-            />
-          </div>
-          
-          {/* Status Dropdown */}
-          <div className="w-[150px]">
-            <select
-              className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            >
-              <option value="">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="verified">Verified</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </div>
-
-          {/* Type Dropdown - Only show when sidebar is closed */}
-          {!actionPanel && (
-            <div className="w-[150px]">
-              <select
-                className="w-full px-3 py-2 border border-border rounded-md bg-card text-card-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                value={filters.type}
-                onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-              >
-                <option value="">All Types</option>
-                <option value="cnic">CNIC</option>
-                <option value="face">Face/Selfie</option>
-                <option value="card">Card</option>
-              </select>
-            </div>
-          )}
-
-          {/* Clear Filters Button */}
-          {!actionPanel && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={(e) => {
-                e.preventDefault();
-                setSearchInput('');
-                setFilters({ search: '', status: '', type: '', sort_by: 'submittedAt', sort_order: 'desc' });
-              }}
-              className="w-full"
-            >
-              Clear Filters
-            </Button>
-          )}
-        </form>
-      </Card>
+      <KYCFilters
+        filters={filters}
+        onFilterChange={handleFilterChange}
+      />
 
           {/* KYC List - Users */}
           <div className="dark:bg-slate-900/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200/50 dark:border-slate-700/50 p-4">

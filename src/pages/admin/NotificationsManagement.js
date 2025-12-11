@@ -29,6 +29,7 @@ import { adminAPI } from '../../services/api';
 import { API_BASE_URL } from '../../config/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import toast from 'react-hot-toast';
+import NotificationFilters from '../../components/notifications/NotificationFilters';
 
 const NotificationsManagement = ({ activeView = 'send' }) => {
   const { isAuthenticated } = useAdminAuth();
@@ -61,8 +62,8 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [viewFilters, setViewFilters] = useState({
     search: '',
-    category: '',
-    status: '',
+    category: [], // Changed to array for multi-select
+    status: [], // Changed to array for multi-select
     date: ''
   });
   const [currentPage, setCurrentPage] = useState(1);
@@ -656,14 +657,14 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
       );
     }
 
-    // Apply category filter
-    if (viewFilters.category) {
-      processed = processed.filter(n => n.category === viewFilters.category);
+    // Apply category filter (multi-select)
+    if (Array.isArray(viewFilters.category) && viewFilters.category.length > 0) {
+      processed = processed.filter(n => viewFilters.category.includes(n.category));
     }
 
-    // Apply status filter
-    if (viewFilters.status) {
-      processed = processed.filter(n => n.status === viewFilters.status);
+    // Apply status filter (multi-select)
+    if (Array.isArray(viewFilters.status) && viewFilters.status.length > 0) {
+      processed = processed.filter(n => viewFilters.status.includes(n.status));
     }
 
     // Apply date filter
@@ -1305,82 +1306,12 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
             </nav>
           </div>
 
-          {/* Filters Strip */}
-          <Card className="p-4 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-              <div className="md:col-span-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search notifications..."
-                    value={viewFilters.search}
-                    onChange={(e) => setViewFilters({ ...viewFilters, search: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <select
-                  value={viewFilters.category}
-                  onChange={(e) => setViewFilters({ ...viewFilters, category: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                  <option value="">All Categories</option>
-                  <option value="Properties">Properties</option>
-                  <option value="Property Detail">Property Detail</option>
-                  <option value="Portfolio">Portfolio</option>
-                  <option value="Wallet">Wallet</option>
-                  <option value="Notifications">Notifications</option>
-                  <option value="Custom">Custom</option>
-                </select>
-              </div>
-
-              <div>
-                <select
-                  value={viewFilters.status}
-                  onChange={(e) => setViewFilters({ ...viewFilters, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                  <option value="">All Status</option>
-                  <option value="unread">Unread</option>
-                  <option value="read">Read</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    value={viewFilters.date}
-                    onChange={(e) => setViewFilters({ ...viewFilters, date: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">All Dates</option>
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="this-week">This Week</option>
-                    <option value="this-month">This Month</option>
-                    <option value="older">Older</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => markAllAsReadMutation.mutate()}
-                  disabled={markAllAsReadMutation.isLoading}
-                  className="text-xs"
-                >
-                  <CheckCircle className="w-3 h-3 mr-1" />
-                  Mark All Read
-                </Button>
-              </div>
-            </div>
-          </Card>
+          {/* Filters */}
+          <NotificationFilters
+            filters={viewFilters}
+            onFilterChange={(key, value) => setViewFilters(prev => ({ ...prev, [key]: value }))}
+            onMarkAllRead={() => markAllAsReadMutation.mutate()}
+          />
 
           {/* Main Content: List + Details Panel */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

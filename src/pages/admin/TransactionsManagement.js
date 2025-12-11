@@ -23,8 +23,8 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
   
   const [filters, setFilters] = useState({
     search: initialFilters?.search || '',
-    status: initialFilters?.status || '',
-    transaction_type: initialFilters?.transaction_type || '',
+    status: Array.isArray(initialFilters?.status) ? initialFilters.status : (initialFilters?.status ? [initialFilters.status] : []),
+    transaction_type: Array.isArray(initialFilters?.transaction_type) ? initialFilters.transaction_type : (initialFilters?.transaction_type ? [initialFilters.transaction_type] : []),
     sort_by: 'created_at',
     sort_order: 'desc'
   });
@@ -261,17 +261,18 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
       });
     }
     
-    // Status filter
-    if (filters.status && filters.status.trim()) {
+    // Status filter (multi-select)
+    if (Array.isArray(filters.status) && filters.status.length > 0) {
       filtered = filtered.filter(transaction => {
         const transactionStatus = getField(transaction, 'status')?.toLowerCase() || '';
-        const filterStatus = filters.status.toLowerCase();
-        return transactionStatus === filterStatus;
+        return filters.status.some(filterStatus => 
+          transactionStatus === filterStatus.toLowerCase()
+        );
       });
     }
     
-    // Transaction type filter
-    if (filters.transaction_type && filters.transaction_type.trim()) {
+    // Transaction type filter (multi-select)
+    if (Array.isArray(filters.transaction_type) && filters.transaction_type.length > 0) {
       filtered = filtered.filter(transaction => {
         const transactionType = getField(
           transaction,
@@ -280,8 +281,9 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
           'type',
           'method'
         )?.toLowerCase() || '';
-        const filterType = filters.transaction_type.toLowerCase();
-        return transactionType === filterType;
+        return filters.transaction_type.some(filterType => 
+          transactionType === filterType.toLowerCase()
+        );
       });
     }
     
@@ -335,7 +337,7 @@ const TransactionsManagement = ({ initialFilters, onFiltersSet }) => {
   // Update pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters.search, filters.status, filters.transaction_type, activeTab]);
+  }, [filters.search, filters.status, filters.transaction_type, filters.sort_by, filters.sort_order, activeTab]);
   
   const pagination = {
     totalPages: totalPages,

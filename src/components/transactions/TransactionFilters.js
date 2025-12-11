@@ -29,29 +29,31 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
   // Count active filters
   const activeFiltersCount = [
     filters.search,
-    filters.status,
-    filters.transaction_type,
+    ...(Array.isArray(filters.status) ? filters.status : []),
+    ...(Array.isArray(filters.transaction_type) ? filters.transaction_type : []),
     filters.sort_by !== 'created_at' || filters.sort_order !== 'desc'
   ].filter(Boolean).length;
 
   // Clear all filters
   const clearAllFilters = () => {
     onFilterChange('search', '');
-    onFilterChange('status', '');
-    onFilterChange('transaction_type', '');
+    onFilterChange('status', []);
+    onFilterChange('transaction_type', []);
     onFilterChange('sort_by', 'created_at');
     onFilterChange('sort_order', 'desc');
   };
 
-  // Toggle filter value (for status and type - single select)
-  const toggleFilter = (filterKey, value) => {
-    const currentValue = filters[filterKey];
-    if (currentValue === value) {
-      // Deselect if already selected
-      onFilterChange(filterKey, '');
+  // Toggle multi-select filter value (for status and transaction_type)
+  const toggleMultiFilter = (filterKey, value) => {
+    const currentArray = Array.isArray(filters[filterKey]) ? filters[filterKey] : [];
+    const isSelected = currentArray.includes(value);
+    
+    if (isSelected) {
+      // Remove from array
+      onFilterChange(filterKey, currentArray.filter(v => v !== value));
     } else {
-      // Select new value
-      onFilterChange(filterKey, value);
+      // Add to array
+      onFilterChange(filterKey, [...currentArray, value]);
     }
   };
 
@@ -164,20 +166,20 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
                 <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <span className="w-1 h-4 bg-blue-600 rounded-full"></span>
                   Status
-                  {filters.status && (
+                  {Array.isArray(filters.status) && filters.status.length > 0 && (
                     <span className="ml-2 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium">
-                      Selected
+                      {filters.status.length} selected
                     </span>
                   )}
                 </h4>
                 <div className="flex flex-wrap gap-2">
                   {statusOptions.map((option) => {
-                    const isActive = filters.status === option.value;
+                    const isActive = Array.isArray(filters.status) && filters.status.includes(option.value);
                     return (
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => toggleFilter('status', option.value)}
+                        onClick={() => toggleMultiFilter('status', option.value)}
                         className={cn(
                           "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
                           isActive
@@ -191,13 +193,13 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
                     );
                   })}
                 </div>
-                {filters.status && (
+                {Array.isArray(filters.status) && filters.status.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => onFilterChange('status', '')}
+                    onClick={() => onFilterChange('status', [])}
                     className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    Clear status filter
+                    Clear status filters
                   </button>
                 )}
               </div>
@@ -207,20 +209,20 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
                 <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <span className="w-1 h-4 bg-green-600 rounded-full"></span>
                   Transaction Type
-                  {filters.transaction_type && (
+                  {Array.isArray(filters.transaction_type) && filters.transaction_type.length > 0 && (
                     <span className="ml-2 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-medium">
-                      Selected
+                      {filters.transaction_type.length} selected
                     </span>
                   )}
                 </h4>
                 <div className="flex flex-wrap gap-2">
                   {typeOptions.map((option) => {
-                    const isActive = filters.transaction_type === option.value;
+                    const isActive = Array.isArray(filters.transaction_type) && filters.transaction_type.includes(option.value);
                     return (
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => toggleFilter('transaction_type', option.value)}
+                        onClick={() => toggleMultiFilter('transaction_type', option.value)}
                         className={cn(
                           "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium flex items-center gap-1.5",
                           isActive
@@ -234,13 +236,13 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
                     );
                   })}
                 </div>
-                {filters.transaction_type && (
+                {Array.isArray(filters.transaction_type) && filters.transaction_type.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => onFilterChange('transaction_type', '')}
+                    onClick={() => onFilterChange('transaction_type', [])}
                     className="text-xs text-green-600 dark:text-green-400 hover:underline"
                   >
-                    Clear type filter
+                    Clear type filters
                   </button>
                 )}
               </div>
@@ -307,27 +309,29 @@ const TransactionFilters = ({ filters, onFilterChange }) => {
         {/* Active Filters Chips Bar - Always visible when filters applied */}
         {activeFiltersCount > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* Status chip */}
-            {filters.status && (
+            {/* Status chips (multi-select) */}
+            {Array.isArray(filters.status) && filters.status.length > 0 && filters.status.map((status) => (
               <div 
+                key={status}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors shadow-sm"
-                onClick={() => onFilterChange('status', '')}
+                onClick={() => toggleMultiFilter('status', status)}
               >
-                <span>Status: {filters.status}</span>
+                <span>Status: {status}</span>
                 <X className="w-3 h-3" />
               </div>
-            )}
+            ))}
             
-            {/* Type chip */}
-            {filters.transaction_type && (
+            {/* Type chips (multi-select) */}
+            {Array.isArray(filters.transaction_type) && filters.transaction_type.length > 0 && filters.transaction_type.map((type) => (
               <div 
+                key={type}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
-                onClick={() => onFilterChange('transaction_type', '')}
+                onClick={() => toggleMultiFilter('transaction_type', type)}
               >
-                <span>Type: {filters.transaction_type}</span>
+                <span>Type: {type}</span>
                 <X className="w-3 h-3" />
               </div>
-            )}
+            ))}
             
             {/* Search chip */}
             {filters.search && (

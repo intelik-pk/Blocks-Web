@@ -2011,7 +2011,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
 
   // Form content (shared between modal and inline)
   const formContent = (
-    <div className={`${inline ? 'w-full' : 'relative myb-4 mx-auto w-11/12 max-w-7xl'} bg-gradient-to-br from-card via-card to-card/95 backdrop-blur-xl ${inline ? 'min-h-[600px]' : 'max-h-[95vh]'} flex flex-col rounded-xl shadow-2xl border border-border/50 overflow-hidden`}>
+    <div className={`${inline ? 'w-full' : 'relative myb-4 mx-auto w-11/12 max-w-7xl'} bg-gradient-to-br from-card via-card to-card/95 backdrop-blur-xl ${inline ? 'min-h-[600px]' : 'max-h-[95vh]'} flex flex-col rounded-xl shadow-2xl border border-border/50 overflow-hidden `}>
         {/* Sticky Header with Close Button */}
         <div className="sticky top-0 z-10 bg-gradient-to-r from-card via-card/95 to-card backdrop-blur-xl border-b border-border/50 px-6 py-5 rounded-t-xl shadow-sm">
           <div className="flex justify-between items-center">

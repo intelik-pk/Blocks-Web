@@ -1713,11 +1713,11 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
             "transition-all duration-300 ease-[cubic-bezier(0.4,0.0,0.2,1)]",
             "opacity-100 translate-x-0 translate-y-0",
             "md:translate-y-0",
-            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(80vh-2rem)] lg:overflow-y-auto"
+            "lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(80vh-2rem)] lg:overflow-y-auto "
           )}>
             {/* Panel Header - Only show for non-full-details actions */}
             {actionPanel !== 'full-details' && actionPanel !== 'edit' && actionPanel !== 'funding' && (
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-border">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-border ">
                 <h3 className="text-lg font-bold text-card-foreground">
                   {actionPanel === 'add' && 'Add New Property'}
                   {actionPanel === 'view' && 'Property Details'}
@@ -1727,7 +1727,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   variant="outline"
                   size="sm"
                   onClick={closeActionPanel}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 "
                 >
                   <X className="w-4 h-4" />
                 </Button>
@@ -1749,9 +1749,9 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
               {/* Edit Property Form */}
               {actionPanel === 'edit' && editingProperty && (
-                <div className="space-y-4 border border-red-500">
+                <div className="space-y-4 ">
                   {/* Back to Details Button - Only show if we came from details view */}
-                  {(panelHistory.length > 0 || selectedPropertyId) && (
+                  {/* {(panelHistory.length > 0 || selectedPropertyId) && (
                     <div className="flex items-center justify-between pb-3 border-b border-border/50 mb-4">
                       <Button
                         variant="outline"
@@ -1772,7 +1772,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
-                  )}
+                  )} */}
                   <PropertyForm
                     property={editingProperty}
                     onSave={handleSaveProperty}
