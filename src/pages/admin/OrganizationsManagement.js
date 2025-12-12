@@ -190,7 +190,7 @@ const OrganizationsManagement = () => {
                 ) : (
                   <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
                     <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                  </div>
+                </div>
                 )}
                 <div>
                   <h3 className="text-lg font-semibold text-card-foreground">{org.name}</h3>
