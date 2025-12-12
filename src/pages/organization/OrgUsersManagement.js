@@ -10,13 +10,19 @@ import {
   Users as UsersIcon,
   DollarSign,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  X,
+  Shield,
+  Building2,
+  Eye
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import { organizationsAPI, adminAPI } from '../../services/api';
+import { organizationsAPI, adminAPI, investmentsAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
+import { cn } from '../../utils/cn';
+import Loader from '../../components/Loder';
 
 const OrgUsersManagement = ({ organizationId }) => {
   const { isAuthenticated, organizationName } = useOrganizationAuth();
@@ -26,6 +32,9 @@ const OrgUsersManagement = ({ organizationId }) => {
     status: ''
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedUserInvestments, setSelectedUserInvestments] = useState(null);
+  const [sidebarView, setSidebarView] = useState(null); // 'user-details' or 'investments'
 
   // Fetch investors via Investment Analytics API
   const { data: investmentAnalytics, isLoading, error } = useQuery(
@@ -42,9 +51,45 @@ const OrgUsersManagement = ({ organizationId }) => {
     }
   );
 
-  // Extract unique investors from investments data
-  const investments = investmentAnalytics?.data?.investments || [];
+  // Also fetch all investments using the same API as InvestmentsManagement page
+  // This ensures we have the same data structure and token fields
+  const { data: allInvestmentsData } = useQuery(
+    ['all-investments-for-org-users', organizationId],
+    async () => {
+      console.log('📊 Fetching all investments (same as InvestmentsManagement)');
+      const response = await adminAPI.getInvestments({
+        limit: 1000
+      });
+      console.log('✅ All Investments Response:', response);
+      return response;
+    },
+    {
+      enabled: isAuthenticated && !!organizationId,
+      retry: 1
+    }
+  );
+
+  // Extract investments from both sources, prefer the detailed investments API
+  const investmentsFromAnalytics = investmentAnalytics?.data?.investments || [];
   const analytics = investmentAnalytics?.data?.analytics || {};
+  
+  // Extract investments from the detailed API (same as InvestmentsManagement)
+  const investmentsFromAPI = allInvestmentsData?.data?.data?.investments || 
+                             allInvestmentsData?.data?.investments || 
+                             allInvestmentsData?.data || 
+                             (Array.isArray(allInvestmentsData) ? allInvestmentsData : []);
+  
+  // Filter investments to only this organization's properties
+  const organizationInvestments = investmentsFromAPI.filter(inv => {
+    const propertyOrgId = inv.property?.organizationId || 
+                         inv.property?.organization_id ||
+                         inv.property?.orgId;
+    return propertyOrgId === organizationId || 
+           String(propertyOrgId) === String(organizationId);
+  });
+  
+  // Use detailed investments if available, otherwise fall back to analytics
+  const investments = organizationInvestments.length > 0 ? organizationInvestments : investmentsFromAnalytics;
   
   const allInvestors = useMemo(() => {
     const investorMap = new Map();
@@ -70,7 +115,8 @@ const OrgUsersManagement = ({ organizationId }) => {
           totalInvested: 0,
           investmentCount: 0,
           activeInvestments: 0,
-          properties: []
+          properties: [],
+          investmentList: [] // Store full investment objects
         });
       }
       
@@ -83,12 +129,24 @@ const OrgUsersManagement = ({ organizationId }) => {
       if (investment.property?.title) {
         investor.properties.push(investment.property.title);
       }
+      // Store full investment object
+      investor.investmentList.push(investment);
     });
     
     const investors = Array.from(investorMap.values());
     console.log(`✅ Found ${investors.length} unique investors:`, investors);
     return investors;
   }, [investments]);
+
+  // Fetch full user data when selected
+  const { data: fullUserData, isLoading: fullUserLoading } = useQuery(
+    ['org-user-details', selectedUserId],
+    () => adminAPI.getUserById(selectedUserId),
+    {
+      enabled: !!selectedUserId && sidebarView === 'user-details',
+      retry: 1
+    }
+  );
 
   // Frontend filtering
   const users = useMemo(() => {
@@ -141,6 +199,10 @@ const OrgUsersManagement = ({ organizationId }) => {
     });
   };
 
+  const formatPrice = (amount) => {
+    return `$${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
   const getStatusBadge = (isActive) => {
     return isActive ? (
       <Badge variant="green" className="flex items-center">
@@ -154,6 +216,28 @@ const OrgUsersManagement = ({ organizationId }) => {
       </Badge>
     );
   };
+
+  const handleUserClick = (user) => {
+    setSelectedUserId(user.id);
+    setSidebarView('user-details');
+  };
+
+  const handleInvestmentsClick = (user) => {
+    setSelectedUserId(user.id);
+    setSelectedUserInvestments(user.investmentList || []);
+    setSidebarView('investments');
+  };
+
+  const closeSidebar = () => {
+    setSidebarView(null);
+    setSelectedUserId(null);
+    setSelectedUserInvestments(null);
+  };
+
+  const selectedUser = useMemo(() => {
+    if (!selectedUserId) return null;
+    return allInvestors.find(u => u.id === selectedUserId);
+  }, [selectedUserId, allInvestors]);
 
   if (isLoading) {
     return (
@@ -178,7 +262,7 @@ const OrgUsersManagement = ({ organizationId }) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -325,7 +409,13 @@ const OrgUsersManagement = ({ organizationId }) => {
                 paginatedUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-background">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
+                      <div 
+                        className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUserClick(user);
+                        }}
+                      >
                         <div className="flex-shrink-0 h-10 w-10">
                           <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-primary/80 flex items-center justify-center">
                             <span className="text-sm font-medium text-white">
@@ -334,10 +424,10 @@ const OrgUsersManagement = ({ organizationId }) => {
                           </div>
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-medium text-card-foreground">
+                          <div className="text-sm font-medium text-card-foreground hover:text-primary transition-colors">
                             {user.fullName || user.name || 'Unknown User'}
                           </div>
-                          <div className="text-sm text-muted-foreground">
+                          <div className="text-sm text-muted-foreground hover:text-primary/70 transition-colors">
                             ID: {user.id?.slice(0, 8)}...
                           </div>
                         </div>
@@ -358,11 +448,19 @@ const OrgUsersManagement = ({ organizationId }) => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-semibold text-green-600">
-                        ${user.totalInvested?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {user.activeInvestments || 0} active
+                      <div 
+                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleInvestmentsClick(user);
+                        }}
+                      >
+                        <div className="text-sm font-semibold text-green-600 hover:text-green-700 transition-colors">
+                          ${user.totalInvested?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                        </div>
+                        <div className="text-xs text-muted-foreground hover:text-primary/70 transition-colors">
+                          {user.activeInvestments || 0} active
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -370,7 +468,14 @@ const OrgUsersManagement = ({ organizationId }) => {
                         {user.investmentCount || 0} {user.investmentCount === 1 ? 'investment' : 'investments'}
                       </div>
                       {user.properties && user.properties.length > 0 && (
-                        <div className="text-xs text-muted-foreground truncate max-w-xs" title={user.properties.join(', ')}>
+                        <div 
+                          className="text-xs text-muted-foreground truncate max-w-xs cursor-pointer hover:text-primary transition-colors" 
+                          title={user.properties.join(', ')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInvestmentsClick(user);
+                          }}
+                        >
                           {user.properties.slice(0, 2).join(', ')}
                           {user.properties.length > 2 && ` +${user.properties.length - 2} more`}
                         </div>
@@ -435,6 +540,290 @@ const OrgUsersManagement = ({ organizationId }) => {
           </div>
         )}
       </Card>
+
+      {/* Sidebar for User Details */}
+      {sidebarView === 'user-details' && selectedUser && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={closeSidebar}
+          />
+          
+          {/* Sidebar */}
+          <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-card shadow-2xl z-50 overflow-y-auto">
+            <div className="p-6">
+              {fullUserLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader />
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Header */}
+                  <div className="flex items-start justify-between border-b border-border pb-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-white text-2xl">
+                        {(selectedUser.fullName || selectedUser.name || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-card-foreground">
+                          {selectedUser.fullName || selectedUser.name || 'Unknown User'}
+                        </h2>
+                        <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                          <Mail className="w-3 h-3" />
+                          {selectedUser.email}
+                        </p>
+                        {selectedUser.displayCode && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 mt-1">
+                            ID: {selectedUser.displayCode}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={closeSidebar}
+                      className="h-8 w-8 p-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  {/* User Info */}
+                  <Card className="p-6">
+                    <h3 className="text-lg font-semibold text-card-foreground mb-4">User Information</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Status</span>
+                        {getStatusBadge(selectedUser.isActive)}
+                      </div>
+                      {selectedUser.phone && selectedUser.phone !== 'N/A' && (
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Phone</span>
+                          <span className="text-sm font-medium text-card-foreground flex items-center gap-1">
+                            <Phone className="w-3 h-3" />
+                            {selectedUser.phone}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Joined</span>
+                        <span className="text-sm font-medium text-card-foreground flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {formatDate(selectedUser.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Investment Summary */}
+                  <Card className="p-6">
+                    <h3 className="text-lg font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5" />
+                      Investment Summary
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Total Invested</p>
+                        <p className="text-lg font-bold text-green-600 mt-1">
+                          {formatPrice(selectedUser.totalInvested)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Total Investments</p>
+                        <p className="text-lg font-bold text-card-foreground mt-1">
+                          {selectedUser.investmentCount || 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Active Investments</p>
+                        <p className="text-lg font-bold text-blue-600 mt-1">
+                          {selectedUser.activeInvestments || 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Properties</p>
+                        <p className="text-lg font-bold text-card-foreground mt-1">
+                          {selectedUser.properties?.length || 0}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full mt-4"
+                      onClick={() => handleInvestmentsClick(selectedUser)}
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      View All Investments
+                    </Button>
+                  </Card>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar for Investments */}
+      {sidebarView === 'investments' && selectedUser && selectedUserInvestments && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={closeSidebar}
+          />
+          
+          {/* Sidebar */}
+          <div className="fixed right-0 top-0 h-full w-full max-w-3xl bg-card shadow-2xl z-50 overflow-y-auto">
+            <div className="p-6">
+              <div className="space-y-6">
+                {/* Header */}
+                <div className="flex items-start justify-between border-b border-border pb-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-card-foreground">
+                      Investments
+                    </h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {selectedUser.fullName || selectedUser.name || 'Unknown User'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Total: {formatPrice(selectedUser.totalInvested)} • {selectedUser.investmentCount || 0} investments
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={closeSidebar}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {/* Investments List */}
+                {selectedUserInvestments.length === 0 ? (
+                  <Card className="p-8 text-center">
+                    <TrendingUp className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                    <p className="text-base font-semibold text-card-foreground mb-2">No Investments</p>
+                    <p className="text-sm text-muted-foreground">This user has not made any investments yet.</p>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {selectedUserInvestments.map((investment, index) => {
+                      const property = investment.property || {};
+                      const amount = parseFloat(investment.amountUSDT || investment.amount || 0);
+                      // Extract tokens using the same logic as InvestmentsManagement page
+                      // Check all possible field names in the same order
+                      let tokens = parseFloat(
+                        investment.tokensToBuy || 
+                        investment.tokens_bought || 
+                        investment.tokens || 
+                        investment.tokensBought ||
+                        investment.tokensPurchased ||
+                        investment.tokens_to_buy ||
+                        investment.tokenAmount ||
+                        investment.quantity ||
+                        0
+                      );
+                      const status = investment.status || 'pending';
+                      const createdAt = investment.createdAt || investment.created_at || investment.date;
+                      
+                      // Debug log to see what we're getting
+                      console.log('Investment tokens (OrgUsers):', {
+                        tokens,
+                        tokensToBuy: investment.tokensToBuy,
+                        tokens_bought: investment.tokens_bought,
+                        tokens: investment.tokens,
+                        tokensBought: investment.tokensBought,
+                        tokensPurchased: investment.tokensPurchased,
+                        tokens_to_buy: investment.tokens_to_buy,
+                        fullInvestment: investment
+                      });
+
+                      return (
+                        <Card key={investment.id || index} className="p-6">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Building2 className="w-4 h-4 text-primary" />
+                                <h3 className="text-lg font-semibold text-card-foreground">
+                                  {property.title || property.name || 'Unknown Property'}
+                                </h3>
+                              </div>
+                              {property.location && (
+                                <p className="text-sm text-muted-foreground mb-2">
+                                  {property.location}
+                                </p>
+                              )}
+                            </div>
+                            <Badge 
+                              variant={status === 'active' || status === 'confirmed' ? 'green' : status === 'pending' ? 'yellow' : 'gray'}
+                            >
+                              {status.charAt(0).toUpperCase() + status.slice(1)}
+                            </Badge>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Amount Invested</p>
+                              <p className="text-base font-bold text-green-600 mt-1">
+                                {formatPrice(amount)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Tokens</p>
+                              <p className="text-base font-bold text-card-foreground mt-1">
+                                {(() => {
+                                  // Always show the actual value, no matter how small
+                                  if (tokens === 0 || isNaN(tokens)) {
+                                    return '0.00';
+                                  }
+                                  // Format tokens similar to InvestmentsManagement page
+                                  // But with more precision for small values
+                                  if (tokens < 0.01) {
+                                    // For very small numbers, show up to 6 decimal places
+                                    return tokens.toLocaleString('en-US', { 
+                                      minimumFractionDigits: 1, 
+                                      maximumFractionDigits: 6,
+                                      useGrouping: false
+                                    });
+                                  }
+                                  if (tokens < 1) {
+                                    // For small numbers (< 1), show up to 3 decimal places (like 0.1)
+                                    return tokens.toLocaleString('en-US', { 
+                                      minimumFractionDigits: 1, 
+                                      maximumFractionDigits: 3,
+                                      useGrouping: false
+                                    });
+                                  }
+                                  // For larger numbers, show up to 3 decimal places (like 68.513)
+                                  return tokens.toLocaleString('en-US', { 
+                                    minimumFractionDigits: 0, 
+                                    maximumFractionDigits: 3 
+                                  });
+                                })()}{' '}
+                                <span className="text-xs text-muted-foreground font-normal">tokens</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {createdAt && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-4 border-t border-border">
+                              <Calendar className="w-3 h-3" />
+                              <span>Invested on {formatDate(createdAt)}</span>
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

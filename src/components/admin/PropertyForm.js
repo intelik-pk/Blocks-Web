@@ -21,10 +21,10 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     organizationId: '', // Required: organization ID
     type: 'residential', // Required: property type
     status: 'active', // Required: one of the allowed values
-    totalValueUSDT: 0, // Required: number
-    totalTokens: 1000, // Required: number
-    expectedROI: 0, // Required: number (calculated based on construction progress)
-    fullROI: 0, // Base/full ROI when construction is 100%
+    totalValueUSDT: '', // Required: number
+    totalTokens: '', // Required: number
+    expectedROI: '', // Required: number (calculated based on construction progress)
+    fullROI: '', // Base/full ROI when construction is 100%
     
     // Other fields
     title: '',
@@ -41,7 +41,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     project_type: '',
     floors: '',
     total_units: '',
-    construction_progress: 0,
+    construction_progress: '',
     start_date: '',
     expected_completion: '',
     handover_date: '',
@@ -50,8 +50,8 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     pricing_appreciation: '',
     pricing_expected_roi: '',
     pricing_min_investment: '',
-    tokenization_total_tokens: 1000,
-    tokenization_available_tokens: 1000,
+    tokenization_total_tokens: '',
+    tokenization_available_tokens: '',
     tokenization_price_per_token: '',
     tokenization_token_price: '',
     unit_types: [],
@@ -447,31 +447,46 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       console.log('🏢 Organization ID for form:', organizationId, '(raw:', rawOrgId, ')');
       
       // Map construction progress
-      const construction_progress = propertyToLoad.construction_progress || 
-                                    propertyToLoad.constructionProgress ||
-                                    propertyToLoad.progress ||
-                                    0;
+      const construction_progress = (propertyToLoad.construction_progress !== undefined && propertyToLoad.construction_progress !== null && propertyToLoad.construction_progress !== '')
+        ? String(propertyToLoad.construction_progress)
+        : (propertyToLoad.constructionProgress !== undefined && propertyToLoad.constructionProgress !== null && propertyToLoad.constructionProgress !== '')
+          ? String(propertyToLoad.constructionProgress)
+          : (propertyToLoad.progress !== undefined && propertyToLoad.progress !== null && propertyToLoad.progress !== '')
+            ? String(propertyToLoad.progress)
+            : '';
       
-      // Map expected ROI
-      const expectedROI = propertyToLoad.expectedROI || 
-                          propertyToLoad.expected_roi || 
-                          propertyToLoad.roi ||
-                          0;
+      // Map expected ROI - preserve empty if not set
+      const expectedROI = (propertyToLoad.expectedROI !== undefined && propertyToLoad.expectedROI !== null && propertyToLoad.expectedROI !== '')
+        ? String(propertyToLoad.expectedROI)
+        : (propertyToLoad.expected_roi !== undefined && propertyToLoad.expected_roi !== null && propertyToLoad.expected_roi !== '')
+          ? String(propertyToLoad.expected_roi)
+          : (propertyToLoad.roi !== undefined && propertyToLoad.roi !== null && propertyToLoad.roi !== '')
+            ? String(propertyToLoad.roi)
+            : '';
       
-      // Map total value
-      const totalValueUSDT = propertyToLoad.totalValueUSDT || 
-                             propertyToLoad.total_value_usdt ||
-                             propertyToLoad.totalValue ||
-                             propertyToLoad.total_value ||
-                             pricingObj.totalValue ||
-                             0;
+      // Map total value - preserve empty if not set
+      const totalValueUSDT = (propertyToLoad.totalValueUSDT !== undefined && propertyToLoad.totalValueUSDT !== null && propertyToLoad.totalValueUSDT !== '') 
+        ? String(propertyToLoad.totalValueUSDT)
+        : (propertyToLoad.total_value_usdt !== undefined && propertyToLoad.total_value_usdt !== null && propertyToLoad.total_value_usdt !== '')
+          ? String(propertyToLoad.total_value_usdt)
+          : (propertyToLoad.totalValue !== undefined && propertyToLoad.totalValue !== null && propertyToLoad.totalValue !== '')
+            ? String(propertyToLoad.totalValue)
+            : (propertyToLoad.total_value !== undefined && propertyToLoad.total_value !== null && propertyToLoad.total_value !== '')
+              ? String(propertyToLoad.total_value)
+              : (pricingObj.totalValue !== undefined && pricingObj.totalValue !== null && pricingObj.totalValue !== '')
+                ? String(pricingObj.totalValue)
+                : '';
       
-      // Map total tokens
-      const totalTokens = propertyToLoad.totalTokens || 
-                          propertyToLoad.total_tokens ||
-                          tokenObj.totalTokens ||
-                          tokenObj.total_tokens ||
-                          1000;
+      // Map total tokens - preserve empty if not set
+      const totalTokens = (propertyToLoad.totalTokens !== undefined && propertyToLoad.totalTokens !== null && propertyToLoad.totalTokens !== '')
+        ? String(propertyToLoad.totalTokens)
+        : (propertyToLoad.total_tokens !== undefined && propertyToLoad.total_tokens !== null && propertyToLoad.total_tokens !== '')
+          ? String(propertyToLoad.total_tokens)
+          : (tokenObj.totalTokens !== undefined && tokenObj.totalTokens !== null && tokenObj.totalTokens !== '')
+            ? String(tokenObj.totalTokens)
+            : (tokenObj.total_tokens !== undefined && tokenObj.total_tokens !== null && tokenObj.total_tokens !== '')
+              ? String(tokenObj.total_tokens)
+              : '';
       
       // Map property details
       const floors = propertyToLoad.floors || propertyToLoad.totalFloors || propertyToLoad.total_floors || '';
@@ -505,12 +520,16 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
         // Calculate full ROI: if construction is 100%, full ROI = expected ROI
         // Otherwise, full ROI = expected ROI / (construction progress / 100)
         fullROI: (() => {
-          if (construction_progress === 100) {
-            return expectedROI;
-          } else if (construction_progress > 0 && expectedROI > 0) {
-            return (expectedROI / (construction_progress / 100));
+          const progress = parseFloat(construction_progress);
+          const roi = parseFloat(expectedROI);
+          if (!isNaN(progress) && !isNaN(roi)) {
+            if (progress === 100) {
+              return String(roi);
+            } else if (progress > 0 && roi > 0) {
+              return String((roi / (progress / 100)).toFixed(2));
+            }
           }
-          return expectedROI || 0; // Default to expected ROI if construction is 0
+          return expectedROI || ''; // Preserve empty if not set
         })(),
         
         // Basic information
@@ -694,7 +713,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
             newData.tokenization_available_tokens = totalTokens;
           } else if (availableTokens < 0) {
             // Don't allow negative values
-            newData.tokenization_available_tokens = 0;
+            newData.tokenization_available_tokens = '';
           }
         }
       }

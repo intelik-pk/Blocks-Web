@@ -469,7 +469,6 @@ const OrgDashboard = () => {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'properties', label: 'Properties', icon: Building2 },
-    { id: 'property-requests', label: 'Property Requests', icon: Building2 },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'transactions', label: 'Transactions', icon: DollarSign },
     { id: 'investments', label: 'Investments', icon: TrendingUp },
@@ -530,8 +529,6 @@ const OrgDashboard = () => {
     switch (activeTab) {
       case 'properties':
         return <OrgPropertiesManagement organizationId={organizationId} />;
-      case 'property-requests':
-        return <OrgPropertyRequestsManagement organizationId={organizationId} />;
       case 'users':
         return <OrgUsersManagement organizationId={organizationId} />;
       case 'transactions':

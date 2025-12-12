@@ -736,6 +736,83 @@ const AdminDashboard = () => {
       }
       console.log('Parsed activities:', activities.length, activities);
     }
+    // Helper function to convert technical endpoints to user-friendly titles
+    const getFriendlyTitle = (activity) => {
+      const action = activity.action || '';
+      const endpoint = activity.endpoint || '';
+      const method = activity.method || '';
+      
+      // If action is already user-friendly, use it
+      if (action && !action.includes('/') && !action.includes('POST') && !action.includes('PATCH') && !action.includes('GET') && !action.includes('PUT') && !action.includes('DELETE')) {
+        return action;
+      }
+      
+      // Handle specific endpoints
+      if (endpoint.includes('/api/mobile/auth/login') || (method === 'POST' && endpoint.includes('/auth/login'))) {
+        return 'Login in Mobile App';
+      }
+      
+      if (endpoint.includes('/api/mobile/auth/register') || (method === 'POST' && endpoint.includes('/auth/register'))) {
+        return 'User Registered via Mobile App';
+      }
+      
+      if (endpoint.includes('/property-requests') && method === 'PATCH') {
+        return 'Property Request Updated';
+      }
+      
+      if (endpoint.includes('/property-requests') && method === 'POST') {
+        return 'New Property Request';
+      }
+      
+      if (endpoint.includes('/kyc') && method === 'POST') {
+        return 'KYC Submitted';
+      }
+      
+      if (endpoint.includes('/kyc') && method === 'PATCH') {
+        return 'KYC Status Updated';
+      }
+      
+      if (endpoint.includes('/investments') && method === 'POST') {
+        return 'New Investment';
+      }
+      
+      if (endpoint.includes('/transactions') && method === 'POST') {
+        return 'Transaction Created';
+      }
+      
+      if (endpoint.includes('/properties') && method === 'PATCH') {
+        return 'Property Updated';
+      }
+      
+      if (endpoint.includes('/properties') && method === 'POST') {
+        return 'Property Created';
+      }
+      
+      if (endpoint.includes('/organizations') && method === 'PATCH') {
+        return 'Organization Updated';
+      }
+      
+      // Generic fallbacks based on method
+      if (method === 'POST' && endpoint.includes('/auth')) {
+        return 'Authentication Activity';
+      }
+      
+      if (method === 'PATCH') {
+        return 'Resource Updated';
+      }
+      
+      if (method === 'POST') {
+        return 'Resource Created';
+      }
+      
+      if (method === 'DELETE') {
+        return 'Resource Deleted';
+      }
+      
+      // Final fallback
+      return 'Activity';
+    };
+
     const sortedActivities = activities.map(activity => {
       // Determine icon and color based on action/endpoint
       let icon = Activity;
@@ -826,7 +903,7 @@ const AdminDashboard = () => {
           }
           setActiveTab('users');
         };
-      } else if (activity.action === 'User Logged In') {
+      } else if (activity.action === 'User Logged In' || activity.endpoint?.includes('/api/mobile/auth/login')) {
         icon = Users;
         color = 'blue';
         onClick = () => {
@@ -838,6 +915,21 @@ const AdminDashboard = () => {
             setTabFilters({ users: { search: userId } });
             setActiveTab('users');
           }
+        };
+      } else if (activity.endpoint?.includes('/property-requests') && activity.method === 'PATCH') {
+        icon = Edit;
+        color = 'purple';
+        onClick = () => {
+          setActiveTab('property-requests');
+        };
+      } else if (activity.action === 'KYC Submitted' || (activity.endpoint?.includes('/kyc') && activity.method === 'POST')) {
+        icon = Shield;
+        color = 'green';
+        onClick = () => {
+          if (userId) {
+            setTabFilters({ kyc: { userId } });
+          }
+          setActiveTab('kyc');
         };
       } else if (activity.action === 'Reward Distributed') {
         icon = Gift;
@@ -862,15 +954,27 @@ const AdminDashboard = () => {
                              (activity.description?.match(/for\s+([A-Z0-9-]+)/i)?.[1]);
       }
 
+      // Helper to check if description is technical
+      const isTechnicalDescription = (desc) => {
+        if (!desc) return true;
+        return desc.startsWith('/') ||
+               desc.startsWith('POST') ||
+               desc.startsWith('PATCH') ||
+               desc.startsWith('GET') ||
+               desc.startsWith('PUT') ||
+               desc.startsWith('DELETE') ||
+               desc.includes('/api/') ||
+               desc === 'Activity' ||
+               desc === activity.endpoint;
+      };
+
       // For login activities, ensure we show user name in description
       let finalDescription = activity.description;
-      if (activity.action === 'User Logged In') {
+      if (activity.action === 'User Logged In' || activity.endpoint?.includes('/api/mobile/auth/login')) {
         // Prefer userName from activity, then description, then user from responseData
         if (activity.userName) {
           finalDescription = activity.userName;
-        } else if (activity.description && 
-                   activity.description !== activity.endpoint && 
-                   !activity.description.startsWith('/')) {
+        } else if (activity.description && !isTechnicalDescription(activity.description)) {
           finalDescription = activity.description;
         } else if (activity.responseData?.user?.fullName) {
           finalDescription = activity.responseData.user.fullName;
@@ -884,20 +988,64 @@ const AdminDashboard = () => {
           // Fallback based on userType
           finalDescription = activity.userType === 'org_admin' ? 'ORG Admin' : 'User';
         }
+      } else if (activity.action === 'KYC Submitted' || (activity.endpoint?.includes('/kyc') && activity.method === 'POST')) {
+        // Extract user name from KYC submission description
+        if (activity.description && activity.description.includes('submitted KYC')) {
+          finalDescription = activity.description.replace(' submitted KYC', '').trim();
+        } else if (activity.userName) {
+          finalDescription = activity.userName;
+        } else if (activity.responseData?.user?.fullName) {
+          finalDescription = activity.responseData.user.fullName;
+        } else if (activity.responseData?.user?.email) {
+          finalDescription = activity.responseData.user.email;
+        } else {
+          finalDescription = 'User';
+        }
+      } else if (activity.action === 'New User Registered') {
+        // For new user registrations, show user name
+        if (activity.userName) {
+          finalDescription = activity.userName;
+        } else if (activity.description && !isTechnicalDescription(activity.description)) {
+          finalDescription = activity.description;
+        } else if (activity.responseData?.user?.fullName) {
+          finalDescription = activity.responseData.user.fullName;
+        } else if (activity.responseData?.user?.email) {
+          finalDescription = activity.responseData.user.email;
+        } else {
+          finalDescription = 'New User';
+        }
       } else {
-        // For other activities, use existing logic
-        finalDescription = (activity.description && 
-                      activity.description !== activity.endpoint && 
-                      !activity.description.startsWith('/') &&
-                      activity.description.length > 0)
-          ? activity.description 
-          : (activity.action || 'Activity');
+        // For other activities, filter out technical endpoints
+        if (activity.description && !isTechnicalDescription(activity.description)) {
+          finalDescription = activity.description;
+        } else if (activity.userName) {
+          finalDescription = activity.userName;
+        } else if (activity.responseData?.user?.fullName) {
+          finalDescription = activity.responseData.user.fullName;
+        } else if (activity.responseData?.user?.email) {
+          finalDescription = activity.responseData.user.email;
+        } else if (activity.action && !isTechnicalDescription(activity.action)) {
+          finalDescription = activity.action;
+        } else {
+          // Use friendly title as fallback, but make it more descriptive
+          const title = getFriendlyTitle(activity);
+          if (title === 'Activity') {
+            finalDescription = activity.userType === 'org_admin' ? 'ORG Admin Activity' : 
+                             activity.userType === 'admin' ? 'Admin Activity' : 
+                             'User Activity';
+          } else {
+            finalDescription = title;
+          }
+        }
       }
+
+      // Get friendly title
+      const friendlyTitle = getFriendlyTitle(activity);
 
       return {
         id: activity.id,
         type: activity.action?.toLowerCase().replace(/\s+/g, '_') || 'activity',
-        title: activity.action || `${activity.method} ${activity.endpoint}`,
+        title: friendlyTitle,
         description: finalDescription,
         amount: activity.amount ? parseFloat(activity.amount.replace(/[^0-9.-]/g, '')) : 0,
         date: new Date(activity.createdAt),

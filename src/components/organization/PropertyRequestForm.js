@@ -34,9 +34,9 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
     description: '',
     type: 'residential',
     propertyStatus: 'planning',
-    totalValueUSDT: 0,
-    totalTokens: 1000,
-    expectedROI: 0,
+    totalValueUSDT: '',
+    totalTokens: '',
+    expectedROI: '',
     city: 'Karachi',
     country: 'Pakistan',
     features: {},
@@ -50,6 +50,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [selectedDocumentType, setSelectedDocumentType] = useState('brochure'); // 'brochure', 'floorPlan', 'compliance'
   const imageFileInputRef = React.useRef(null);
   const documentFileInputRef = React.useRef(null);
 
@@ -79,7 +80,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
     } else {
       setFormData(prev => ({
         ...prev,
-        [name]: type === 'number' ? parseFloat(value) || 0 : value
+        [name]: type === 'number' ? (value === '' ? '' : parseFloat(value) || '') : value
       }));
     }
   };
@@ -176,8 +177,30 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
       return;
     }
 
+    // Validate and convert number fields
+    if (!formData.totalValueUSDT || formData.totalValueUSDT === '') {
+      toast.error('Please enter Total Value (USDT)');
+      return;
+    }
+    if (!formData.totalTokens || formData.totalTokens === '') {
+      toast.error('Please enter Total Tokens');
+      return;
+    }
+    if (!formData.expectedROI || formData.expectedROI === '') {
+      toast.error('Please enter Expected ROI');
+      return;
+    }
+
+    // Prepare form data with converted numbers
+    const submitData = {
+      ...formData,
+      totalValueUSDT: parseFloat(formData.totalValueUSDT) || 0,
+      totalTokens: parseFloat(formData.totalTokens) || 0,
+      expectedROI: parseFloat(formData.expectedROI) || 0
+    };
+
     try {
-      const response = await propertyRequestsAPI.create(formData, orgAdminId);
+      const response = await propertyRequestsAPI.create(submitData, orgAdminId);
       toast.success('Property request submitted successfully!');
       if (onSave) onSave(response);
     } catch (error) {
@@ -446,23 +469,155 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Documents
               </label>
-              <input
-                ref={documentFileInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx"
-                onChange={(e) => handleDocumentUpload(e, 'brochure')}
-                className="hidden"
-              />
-              <Button
-                type="button"
-                onClick={() => documentFileInputRef.current?.click()}
-                disabled={uploadingDocument}
-                variant="outline"
-                className="mb-4"
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                {uploadingDocument ? 'Uploading...' : 'Upload Document'}
-              </Button>
+              <div className="flex gap-2 mb-3">
+                <select
+                  value={selectedDocumentType}
+                  onChange={(e) => setSelectedDocumentType(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                >
+                  <option value="brochure">Brochure</option>
+                  <option value="floorPlan">Floor Plan</option>
+                  <option value="compliance">Compliance Document</option>
+                </select>
+                <input
+                  ref={documentFileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => handleDocumentUpload(e, selectedDocumentType)}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  onClick={() => documentFileInputRef.current?.click()}
+                  disabled={uploadingDocument}
+                  variant="outline"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  {uploadingDocument ? 'Uploading...' : 'Upload Document'}
+                </Button>
+              </div>
+
+              {/* Display Uploaded Documents */}
+              <div className="space-y-3 mt-4">
+                {formData.documents.brochure && (
+                  <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          Brochure: {formData.documents.brochure.name || 'Brochure Document'}
+                        </p>
+                        {formData.documents.brochure.url && (
+                          <a
+                            href={formData.documents.brochure.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            View Document
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          documents: { ...prev.documents, brochure: null }
+                        }));
+                      }}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {formData.documents.floorPlan && (
+                  <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          Floor Plan: {formData.documents.floorPlan.name || 'Floor Plan Document'}
+                        </p>
+                        {formData.documents.floorPlan.url && (
+                          <a
+                            href={formData.documents.floorPlan.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            View Document
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          documents: { ...prev.documents, floorPlan: null }
+                        }));
+                      }}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {formData.documents.compliance && formData.documents.compliance.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Compliance Documents:</p>
+                    {formData.documents.compliance.map((doc, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {doc.name || `Compliance Document ${index + 1}`}
+                            </p>
+                            {doc.url && (
+                              <a
+                                href={doc.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                View Document
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              documents: {
+                                ...prev.documents,
+                                compliance: prev.documents.compliance.filter((_, i) => i !== index)
+                              }
+                            }));
+                          }}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -11,17 +11,23 @@ import {
   TrendingUp,
   Users,
   AlertTriangle,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { organizationsAPI, adminAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
+import OrgPropertyRequestsManagement from './OrgPropertyRequestsManagement';
+import { cn } from '../../utils/cn';
 
 const OrgPropertiesManagement = ({ organizationId }) => {
   const { isAuthenticated } = useOrganizationAuth();
   const navigate = useNavigate();
+  
+  // Sub-tab state: 'properties' or 'property-requests'
+  const [activeSubTab, setActiveSubTab] = useState('properties');
   
   const [filters, setFilters] = useState({
     search: '',
@@ -232,15 +238,48 @@ const OrgPropertiesManagement = ({ organizationId }) => {
           <h2 className="text-2xl font-bold text-card-foreground">Properties Management</h2>
           <p className="text-muted-foreground">
             Manage your organization's properties
-            <span className="ml-2 text-primary font-medium">
-              ({filteredProperties.length} {filteredProperties.length === 1 ? 'property' : 'properties'})
-            </span>
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Showing {itemsPerPage} per page
+            {activeSubTab === 'properties' && (
+              <span className="ml-2 text-primary font-medium">
+                ({filteredProperties.length} {filteredProperties.length === 1 ? 'property' : 'properties'})
+              </span>
+            )}
           </p>
         </div>
       </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-2 border-b border-border">
+        <button
+          onClick={() => setActiveSubTab('properties')}
+          className={cn(
+            "px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2",
+            activeSubTab === 'properties'
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-card-foreground"
+          )}
+        >
+          <Building2 className="w-4 h-4" />
+          Properties
+        </button>
+        <button
+          onClick={() => setActiveSubTab('property-requests')}
+          className={cn(
+            "px-4 py-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2",
+            activeSubTab === 'property-requests'
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-card-foreground"
+          )}
+        >
+          <FileText className="w-4 h-4" />
+          Property Requests
+        </button>
+      </div>
+
+      {/* Sub-tab Content */}
+      {activeSubTab === 'property-requests' ? (
+        <OrgPropertyRequestsManagement organizationId={organizationId} />
+      ) : (
+        <>
 
       {/* Filters */}
       <Card className="p-6">
@@ -470,6 +509,8 @@ const OrgPropertiesManagement = ({ organizationId }) => {
             </div>
           </div>
         </Card>
+      )}
+        </>
       )}
     </div>
   );
