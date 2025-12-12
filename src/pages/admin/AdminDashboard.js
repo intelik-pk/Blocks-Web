@@ -48,11 +48,13 @@ import ReportsManagement from './ReportsManagement';
 import KYCManagement from './KYCManagement';
 import NotificationsManagement from './NotificationsManagement';
 import Loader from '../../components/Loder';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const AdminDashboard = () => {
   const { adminUser, isAuthenticated, logout } = useAdminAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme } = useTheme();
   
   const validTabs = ['overview', 'properties', 'property-requests', 'users', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
   
@@ -1590,8 +1592,13 @@ const AdminDashboard = () => {
   return (
  
     <div 
-    style={{ backgroundImage: `url('/249.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } }
-    className="flex h-screen bg-background overflow-hidden ">
+    style={{ 
+      backgroundImage: theme === 'dark' ? 'url(/250.jpg)' : 'url(/249.jpg)', 
+      backgroundSize: 'cover', 
+      backgroundPosition: 'center', 
+      backgroundRepeat: 'no-repeat' 
+    }}
+    className="flex h-screen bg-background overflow-hidden" >
       {/* Sidebar */}
       <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       
@@ -1624,10 +1631,10 @@ const AdminDashboard = () => {
           </div>
 
           <div>
-            <h1 className="text-2xl font-bold text-black/80">
+            <h1 className="text-2xl font-bold text-black/80 dark:text-white/80">
               Admin Panel
             </h1>
-            <p className="text-sm text-black/70">
+            <p className="text-sm text-black/70 dark:text-white/70">
               Real Estate Management
             </p>
           </div>
@@ -1636,7 +1643,7 @@ const AdminDashboard = () => {
         {/* Right Section */}
         <div className="flex items-center space-x-4">
 
-          <div className="text-sm text-black/80">
+          <div className="text-sm text-black/80 dark:text-white/80">
             Welcome,{" "}
             <span className="font-medium text-primary">
               {adminUser?.name || "Admin"}

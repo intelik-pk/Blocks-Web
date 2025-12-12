@@ -354,3 +354,4 @@ const NotificationFilters = ({ filters, onFilterChange, onMarkAllRead }) => {
 
 export default NotificationFilters;
 
+

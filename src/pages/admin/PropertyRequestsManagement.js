@@ -329,7 +329,7 @@ const PropertyRequestsManagement = () => {
           
           {/* Side Panel - Slides in from right */}
           <div 
-            className="fixed right-0 top-0 bottom-0 w-full md:w-[600px] lg:w-[700px] z-[60] flex flex-col shadow-2xl"
+            className="fixed right-0 top-0 bottom-0 pb-5 w-full md:w-[600px] lg:w-[700px] z-[60] flex flex-col shadow-2xl"
             style={{
               animation: 'slideInFromRight 0.3s ease-out',
             }}
@@ -381,10 +381,10 @@ const PropertyRequestsManagement = () => {
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent bg-background">
               <div className="p-6 space-y-5">
                 {/* Quick Info Bar */}
-                <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-accent/30 to-accent/10 rounded-xl border border-border/30">
+                <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-accent/30 to-accent/10 rounded-xl border border-border/80">
                   <div className="flex-1 grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground text-xs block mb-0.5">Organization</span>
@@ -421,10 +421,10 @@ const PropertyRequestsManagement = () => {
                 {selectedRequest.description && (
                   <div className="space-y-2">
                     <h4 className="text-sm font-semibold text-card-foreground uppercase tracking-wide flex items-center gap-2">
-                      <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+                      <div className="w-1 h-4 rounded-full"></div>
                       Description
                     </h4>
-                    <div className="p-4 bg-card/50 rounded-xl border border-border/30">
+                    <div className="p-4 bg-card/50 rounded-xl border border-border/80">
                       <p className="text-sm text-card-foreground/90 leading-relaxed whitespace-pre-wrap">{selectedRequest.description}</p>
                     </div>
                   </div>
@@ -433,42 +433,42 @@ const PropertyRequestsManagement = () => {
                 {/* Financial Overview */}
                 <div className="space-y-2">
                   <h4 className="text-sm font-semibold text-card-foreground uppercase tracking-wide flex items-center gap-2">
-                    <div className="w-1 h-4 bg-green-500 rounded-full"></div>
+                    <div className="w-1 h-4 rounded-full"></div>
                     Financial Overview
                   </h4>
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="p-4 bg-gradient-to-br from-green-500/15 to-emerald-500/5 rounded-xl border border-green-500/30 hover:border-green-500/50 transition-colors">
+                    <div className="p-4 rounded-xl border dark:border-white/30 border-black/20 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 bg-green-500/20 rounded-lg">
                           <DollarSign className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
                         </div>
                         <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Value</label>
                       </div>
-                      <p className="text-lg font-bold text-green-600 dark:text-green-400 leading-tight">
+                      <p className="text-lg font-bold text-black dark:text-white/80 leading-tight">
                         {parseFloat(selectedRequest.totalValueUSDT || 0).toLocaleString()}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">USDT</p>
                     </div>
-                    <div className="p-4 bg-gradient-to-br from-blue-500/15 to-cyan-500/5 rounded-xl border border-blue-500/30 hover:border-blue-500/50 transition-colors">
+                    <div className="p-4 rounded-xl border dark:border-white/30 border-black/20 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 bg-blue-500/20 rounded-lg">
                           <TrendingUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                         </div>
                         <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Tokens</label>
                       </div>
-                      <p className="text-lg font-bold text-blue-600 dark:text-blue-400 leading-tight">
+                      <p className="text-lg font-bold text-black dark:text-white/80 leading-tight">
                         {parseFloat(selectedRequest.totalTokens || 0).toLocaleString()}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">Units</p>
                     </div>
-                    <div className="p-4 bg-gradient-to-br from-purple-500/15 to-pink-500/5 rounded-xl border border-purple-500/30 hover:border-purple-500/50 transition-colors">
+                    <div className="p-4 rounded-xl border dark:border-white/30 border-black/20 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 bg-purple-500/20 rounded-lg">
                           <TrendingUp className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                         </div>
                         <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">ROI</label>
                       </div>
-                      <p className="text-lg font-bold text-purple-600 dark:text-purple-400 leading-tight">
+                      <p className="text-lg font-bold text-black dark:text-white/80 leading-tight">
                         {parseFloat(selectedRequest.expectedROI || 0)}%
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">Expected</p>
@@ -477,9 +477,9 @@ const PropertyRequestsManagement = () => {
                 </div>
 
                 {/* Location */}
-                <div className="p-4 bg-gradient-to-r from-red-500/10 to-orange-500/10 rounded-xl border border-red-500/20 flex items-center gap-3">
-                  <div className="p-2 bg-red-500/20 rounded-lg">
-                    <MapPin className="w-5 h-5 text-red-600 dark:text-red-400" />
+                <div className="p-4 rounded-xl border dark:border-green-500/30 border-green-600/40 flex items-center gap-3">
+                  <div className="p-2 bg-green-500/20 rounded-lg">
+                    <MapPin className="w-5 h-5 text-green-600 dark:text-green-400" />
                   </div>
                   <div>
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-0.5">Location</span>
@@ -556,7 +556,7 @@ const PropertyRequestsManagement = () => {
                 {selectedRequest.images && (
                   <div className="space-y-3">
                     <h4 className="text-sm font-semibold text-card-foreground uppercase tracking-wide flex items-center gap-2">
-                      <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                      <div className="w-1 h-4 rounded-full"></div>
                       Property Images
                     </h4>
                     {selectedRequest.images?.urls && Array.isArray(selectedRequest.images.urls) && selectedRequest.images.urls.length > 0 ? (
@@ -588,7 +588,7 @@ const PropertyRequestsManagement = () => {
                 {selectedRequest.documents && (
                   <div className="space-y-3">
                     <h4 className="text-sm font-semibold text-card-foreground uppercase tracking-wide flex items-center gap-2">
-                      <div className="w-1 h-4 bg-orange-500 rounded-full"></div>
+                      <div className="w-1 h-4 rounded-full"></div>
                       Documents
                     </h4>
                     <div className="space-y-2">
