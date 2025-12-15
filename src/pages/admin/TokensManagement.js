@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { 
   Coins, 
-  Search, 
   Building2,
   TrendingUp,
   Users,
@@ -32,6 +31,7 @@ import Badge from '../../components/ui/Badge';
 import { adminAPI, organizationsAPI, investmentsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
+import TokenFilters from '../../components/tokens/TokenFilters';
 
 const TokensManagement = () => {
   const { isAuthenticated } = useAdminAuth();
@@ -170,7 +170,30 @@ const TokensManagement = () => {
         totalInvestment: totalInvestment,
         fundingPercentage: fundingPercentage,
         propertyCount: orgProperties.length,
-        logoUrl: org.logoUrl || null
+        logoUrl: org.logoUrl || null,
+        orgProperties: orgProperties.map(prop => {
+          const propTokens = parseFloat(prop.totalTokens || prop.tokenization_total_tokens || 0);
+          const propBoughtTokens = investments
+            .filter(inv => {
+              const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+              return (prop.id === invPropertyId || prop.displayCode === invPropertyId) &&
+                     (inv.status === 'confirmed' || inv.status === 'active');
+            })
+            .reduce((sum, inv) => sum + parseFloat(inv.tokensPurchased || 0), 0);
+          const propAvailableTokens = propTokens - propBoughtTokens;
+          const propFundingPercentage = propTokens > 0 ? (propBoughtTokens / propTokens) * 100 : 0;
+          
+          return {
+            id: prop.id,
+            displayCode: prop.displayCode,
+            name: prop.title || prop.name || 'Unknown Property',
+            tokensAllocated: propTokens,
+            tokensSold: propBoughtTokens,
+            availableTokens: propAvailableTokens,
+            fundingPercentage: propFundingPercentage,
+            status: prop.status || 'active'
+          };
+        })
       };
     });
   }, [organizationsData, propertiesData, investmentsData]);
@@ -316,16 +339,21 @@ const TokensManagement = () => {
 
   // Filter and sort tokens
   const filteredAndSortedTokens = useMemo(() => {
-    let filtered = tokensData.filter(token => 
-      token.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (token.displayCode || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    let filtered = tokensData.filter(token => {
+      const search = (filters.search || '').toLowerCase();
+      if (!search) return true;
+      
+      return (
+        token.name.toLowerCase().includes(search) ||
+        (token.displayCode || '').toLowerCase().includes(search)
+      );
+    });
 
     // Sort
     filtered.sort((a, b) => {
       let aValue, bValue;
       
-      switch (sortBy) {
+      switch (filters.sort_by) {
         case 'totalTokens':
           aValue = a.totalTokens;
           bValue = b.totalTokens;
@@ -341,7 +369,7 @@ const TokensManagement = () => {
           break;
       }
 
-      if (sortOrder === 'asc') {
+      if (filters.sort_order === 'asc') {
         return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
       } else {
         return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
@@ -349,7 +377,7 @@ const TokensManagement = () => {
     });
 
     return filtered;
-  }, [tokensData, searchTerm, sortBy, sortOrder]);
+  }, [tokensData, filters]);
 
   const formatNumber = (num) => {
     if (num === 0) return '0';

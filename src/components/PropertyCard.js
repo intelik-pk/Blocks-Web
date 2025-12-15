@@ -178,8 +178,8 @@ const PropertyCard = ({ property, onInvest }) => {
             return null;
           })()}
           <h3 className="text-xl font-semibold text-card-foreground line-clamp-2 flex-1">
-            {property.title}
-          </h3>
+          {property.title}
+        </h3>
         </div>
         
         <p className="text-muted-foreground text-sm mb-3 line-clamp-2">

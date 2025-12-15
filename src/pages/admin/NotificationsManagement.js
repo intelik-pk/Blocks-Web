@@ -45,8 +45,13 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
   });
 
   const [selectedUsers, setSelectedUsers] = useState([]);
-  const [showUserSelector, setShowUserSelector] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userFilters, setUserFilters] = useState({
+    organization: '',
+    role: '',
+    status: '' // 'active' | 'inactive' | ''
+  });
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true); // For tablet/mobile
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
 
@@ -131,18 +136,56 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
   const users = usersData?.data?.users || usersData?.data?.data?.users || usersData?.data || [];
   const properties = propertiesData?.data?.properties || propertiesData?.data?.data?.properties || propertiesData?.data || [];
 
-  // Filter users based on search query
-  const filteredUsers = React.useMemo(() => {
-    if (!userSearchQuery.trim()) {
-      return users;
+  // Helper function to get user initials for avatar
+  const getUserInitials = (user) => {
+    const name = user.fullName || user.name || user.email || 'U';
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
-    const query = userSearchQuery.toLowerCase().trim();
-    return users.filter(user => {
-      const name = (user.fullName || user.name || '').toLowerCase();
-      const email = (user.email || '').toLowerCase();
-      return name.includes(query) || email.includes(query);
-    });
-  }, [users, userSearchQuery]);
+    return name.substring(0, 2).toUpperCase();
+  };
+
+  // Filter users based on search query and filters
+  const filteredUsers = React.useMemo(() => {
+    let filtered = users;
+
+    // Search filter
+    if (userSearchQuery.trim()) {
+      const query = userSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter(user => {
+        const name = (user.fullName || user.name || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        return name.includes(query) || email.includes(query);
+      });
+    }
+
+    // Status filter
+    if (userFilters.status) {
+      filtered = filtered.filter(user => {
+        const isActive = user.isActive !== undefined ? user.isActive : user.is_active;
+        return userFilters.status === 'active' ? isActive : !isActive;
+      });
+    }
+
+    // Role filter (if role field exists)
+    if (userFilters.role) {
+      filtered = filtered.filter(user => {
+        const userRole = user.role || user.userRole || '';
+        return userRole.toLowerCase() === userFilters.role.toLowerCase();
+      });
+    }
+
+    // Organization filter (if organization field exists)
+    if (userFilters.organization) {
+      filtered = filtered.filter(user => {
+        const org = user.organization || user.organizationName || '';
+        return org.toLowerCase().includes(userFilters.organization.toLowerCase());
+      });
+    }
+
+    return filtered;
+  }, [users, userSearchQuery, userFilters]);
 
   // Send notification mutation
   const sendNotificationMutation = useMutation(
@@ -865,159 +908,267 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
 
       {/* Tab Content */}
       {activeTab === 'send' ? (
-        <div className={`grid grid-cols-1 xl:grid-cols-10 gap-6 w-full transition-all duration-300`}>
-          {/* LEFT COLUMN - Form (Full width initially, 50% when right panel opens) */}
-          <div className={`space-y-6 transition-all duration-300 ${rightPanelMode === 'none' ? 'xl:col-span-10' : 'xl:col-span-5'
-            }`}>
-            <Card className="p-6 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Category Section - At Top */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                    Category (Redirect Route) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {['properties', 'property-detail', 'portfolio', 'wallet', 'notifications', 'custom'].map((category) => {
-                      const Icon = getCategoryIcon(category);
-                      const isSelected = formData.category === category;
+        <div className="send-notification-layout flex flex-col lg:flex-row min-h-[calc(100vh-12rem)] max-h-[calc(100vh-12rem)] overflow-hidden gap-0">
+          {/* LEFT PANEL - User Selection & Filters */}
+          {/* Mobile: Full-screen overlay when open */}
+          {isLeftPanelOpen && (
+            <div className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setIsLeftPanelOpen(false)} />
+          )}
+          <div className={`users-panel flex flex-col border-r border-gray-200 rounded-xl dark:border-slate-700 transition-all duration-300 ${
+            isLeftPanelOpen 
+              ? 'w-full lg:w-80 xl:w-96 fixed lg:relative z-50 lg:z-auto h-full lg:h-full' 
+              : 'w-0 lg:w-80 xl:w-96 hidden lg:flex'
+          }`}>
+            <Card className="h-full flex flex-col rounded-xl border-0 shadow-none bg-transparent dark:bg-transparent overflow-hidden">
+              {/* Header */}
+              <div className="flex-shrink-0 px-4 pt-4 rounded-xl ">
+                <div className="flex items-center justify-between ">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Select Users</h3>
+                  <button
+                    onClick={() => setIsLeftPanelOpen(false)}
+                    className="lg:hidden p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                {selectedUsers.length > 0 && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {selectedUsers.length} selected
+                  </p>
+                )}
+              </div>
+
+              {/* Search & Filters */}
+              <div className="flex-shrink-0 p-4 space-y-3 border-b border-gray-200 dark:border-slate-700 ">
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by name or email..."
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                  />
+                  {userSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setUserSearchQuery('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filters */}
+                <div className="space-y-2">
+                  {/* Status Filter */}
+                  <select
+                    value={userFilters.status}
+                    onChange={(e) => setUserFilters({ ...userFilters, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+
+                  {/* Role Filter (if role data exists) */}
+                  <select
+                    value={userFilters.role}
+                    onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">All Roles</option>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                    <option value="investor">Investor</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Bulk Actions */}
+              <div className="flex-shrink-0 border-b border-gray-200 dark:border-slate-700 p-4 flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filteredUsers.length > 0 && filteredUsers.every(user => selectedUsers.some(u => u.id === user.id))}
+                    onChange={handleSelectAll}
+                    className="rounded border-gray-300 dark:border-slate-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Select All</span>
+                </label>
+                {selectedUsers.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedUsers([]);
+                      setFormData({ ...formData, userIds: [] });
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              {/* User List (Scrollable) */}
+              <div className="flex-1 overflow-y-auto p-4 max-h-[calc(100vh-20rem)]">
+                {usersLoading ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading users...</p>
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users className="w-12 h-12 text-gray-400 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {userSearchQuery || userFilters.status || userFilters.role ? 'No users found matching filters' : 'No users found'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredUsers.map((user) => {
+                      const isSelected = selectedUsers.some(u => u.id === user.id);
                       return (
-                        <button
-                          key={category}
-                          type="button"
-                          onClick={() => handleCategoryChange(category)}
-                          className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${isSelected
-                              ? 'border-black dark:bg-black/20 dark:border-white shadow-lg shadow-black/20 ring-2 ring-black/30'
-                              : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 bg-white/50 dark:bg-slate-800/50'
-                            }`}
+                        <div
+                          key={user.id}
+                          onClick={() => handleUserToggle(user)}
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            isSelected 
+                              ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' 
+                              : 'hover:bg-gray-50 dark:hover:bg-slate-800 border border-transparent'
+                          }`}
                         >
-                          <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-black dark:text-white' : 'text-gray-400 dark:text-gray-500'}`} />
-                          <p className={`text-sm font-medium ${isSelected ? 'text-black dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
-                            {getCategoryLabel(category)}
-                          </p>
-                        </button>
+                          {/* Avatar */}
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
+                            isSelected
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'
+                          }`}>
+                            {getUserInitials(user)}
+                          </div>
+                          
+                          {/* Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleUserToggle(user)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded border-gray-300 dark:border-slate-600 flex-shrink-0"
+                          />
+                          
+                          {/* User Info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {user.fullName || user.name || user.email}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {user.email}
+                            </p>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
-                </div>
-                {/* User Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Select Users <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowUserSelector(!showUserSelector)}
-                      className="w-full justify-between"
-                    >
-                      <span>
-                        {selectedUsers.length === 0
-                          ? 'Select users...'
-                          : `${selectedUsers.length} user${selectedUsers.length > 1 ? 's' : ''} selected`}
-                      </span>
-                      <Users className="w-4 h-4" />
-                    </Button>
+                )}
+              </div>
+            </Card>
+          </div>
 
-                    {showUserSelector && (
-                      <Card className="absolute z-10 w-full mt-2 max-h-96 overflow-y-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-xl">
-                        <div className="p-4 space-y-2">
-                          <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-200 dark:border-slate-700">
-                            <span className="text-sm font-medium">Select Users</span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleSelectAll}
+          {/* RIGHT PANEL - Notification Form */}
+          <div className="notification-panel flex-1 min-w-0 flex flex-col overflow-hidden">
+            {/* Mobile: Toggle button to show left panel */}
+            {!isLeftPanelOpen && (
+              <div className="lg:hidden sticky top-0 z-10 p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsLeftPanelOpen(true)}
+                  className="w-full"
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Select Users ({selectedUsers.length} selected)
+                </Button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-6 space-y-6">
+                <Card className="p-6 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+                  <form onSubmit={handleSubmit} className="space-y-6">
+                    {/* Selected Users Summary */}
+                    {selectedUsers.length > 0 && (
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            Selected Users: {selectedUsers.length}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedUsers([]);
+                              setFormData({ ...formData, userIds: [] });
+                            }}
+                          >
+                            Clear All
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {selectedUsers.slice(0, 10).map((user) => (
+                            <Badge
+                              key={user.id}
+                              variant="default"
+                              className="flex items-center gap-1"
                             >
-                              {filteredUsers.every(user => selectedUsers.some(u => u.id === user.id)) && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
-                            </Button>
-                          </div>
-
-                          {/* Search Input */}
-                          <div className="mb-3">
-                            <div className="relative">
-                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                              <input
-                                type="text"
-                                placeholder="Search by name or email..."
-                                value={userSearchQuery}
-                                onChange={(e) => setUserSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
-                                onClick={(e) => e.stopPropagation()}
+                              {user.fullName || user.name || user.email}
+                              <X
+                                className="w-3 h-3 cursor-pointer"
+                                onClick={() => handleUserToggle(user)}
                               />
-                              {userSearchQuery && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setUserSearchQuery('');
-                                  }}
-                                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                            {userSearchQuery && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
-                              </p>
-                            )}
-                          </div>
-
-                          {usersLoading ? (
-                            <div className="text-center py-4">
-                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-                            </div>
-                          ) : filteredUsers.length === 0 ? (
-                            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                              {userSearchQuery ? 'No users found matching your search' : 'No users found'}
-                            </p>
-                          ) : (
-                            filteredUsers.map((user) => {
-                              const isSelected = selectedUsers.some(u => u.id === user.id);
-                              return (
-                                <div
-                                  key={user.id}
-                                  onClick={() => handleUserToggle(user)}
-                                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' : ''
-                                    }`}
-                                >
-                                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-slate-600'
-                                    }`}>
-                                    {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
-                                  </div>
-                                  <div className="flex-1">
-                                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{user.fullName || user.name || user.email}</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
-                                  </div>
-                                </div>
-                              );
-                            })
+                            </Badge>
+                          ))}
+                          {selectedUsers.length > 10 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{selectedUsers.length - 10} more
+                            </Badge>
                           )}
                         </div>
-                      </Card>
+                      </div>
                     )}
-                  </div>
-                  {selectedUsers.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {selectedUsers.map((user) => (
-                        <Badge
-                          key={user.id}
-                          variant="default"
-                          className="flex items-center gap-1"
-                        >
-                          {user.fullName || user.name || user.email}
-                          <X
-                            className="w-3 h-3 cursor-pointer"
-                            onClick={() => handleUserToggle(user)}
-                          />
-                        </Badge>
-                      ))}
+
+                    {/* Category Section */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                        Category (Redirect Route) <span className="text-red-500">*</span>
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {['properties', 'property-detail', 'portfolio', 'wallet', 'notifications', 'custom'].map((category) => {
+                          const Icon = getCategoryIcon(category);
+                          const isSelected = formData.category === category;
+                          return (
+                            <button
+                              key={category}
+                              type="button"
+                              onClick={() => handleCategoryChange(category)}
+                              className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${isSelected
+                                  ? 'border-black dark:bg-black/20 dark:border-white shadow-lg shadow-black/20 ring-2 ring-black/30'
+                                  : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 bg-white/50 dark:bg-slate-800/50'
+                                }`}
+                            >
+                              <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-black dark:text-white' : 'text-gray-400 dark:text-gray-500'}`} />
+                              <p className={`text-sm font-medium ${isSelected ? 'text-black dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
+                                {getCategoryLabel(category)}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  )}
-                </div>
 
                 {/* Title */}
                 <div>
@@ -1088,153 +1239,161 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
                   </div>
                 )}
 
-                {/* Footer Buttons */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-slate-700">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleReset}
-                    className="border-gray-300 dark:border-slate-600"
-                  >
-                    Reset
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handlePreview}
-                    className="border-blue-500 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                  >
-                    Preview
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={sendNotificationMutation.isLoading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Send className="w-4 h-4 mr-2" />
-                    {sendNotificationMutation.isLoading ? 'Sending...' : 'Send Notification'}
-                  </Button>
-                </div>
-              </form>
-            </Card>
-          </div>
-
-          {/* RIGHT COLUMN - Preview/Sending Panel (50% when open, hidden when closed) */}
-          {rightPanelMode !== 'none' && (
-            <div className="xl:col-span-5 space-y-6 transition-all duration-300 ease-out opacity-100 transform translate-x-0">
-              {rightPanelMode === 'preview' && (
-                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-slate-700">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Preview</h3>
+                    {/* Footer Buttons - Sticky */}
+                    <div className="sticky bottom-0 border-t border-gray-200 dark:border-slate-700 -mx-6 -mb-6 px-6 py-4 flex justify-end gap-3">
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        onClick={() => setRightPanelMode('none')}
-                        className="h-8 w-8 p-0"
+                        onClick={handleReset}
+                        className="border-gray-300 dark:border-slate-600"
                       >
-                        <X className="w-4 h-4" />
+                        Reset
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handlePreview}
+                        className="border-blue-500 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                      >
+                        Preview
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={
+                          sendNotificationMutation.isLoading ||
+                          selectedUsers.length === 0 ||
+                          !formData.title.trim() ||
+                          !formData.message.trim()
+                        }
+                        className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Send className="w-4 h-4 mr-2" />
+                        {sendNotificationMutation.isLoading ? 'Sending...' : 'Send Notification'}
                       </Button>
                     </div>
+                  </form>
+                </Card>
 
-                    {/* Preview Card */}
-                    <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl p-6 border border-blue-200/50 dark:border-blue-700/50 shadow-lg">
-                      <div className="flex items-start gap-3 mb-4">
-                        <div className="p-2 bg-blue-500/10 dark:bg-blue-400/20 rounded-lg">
-                          {React.createElement(getCategoryIcon(formData.category), { className: "w-5 h-5 text-blue-600 dark:text-blue-400" })}
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">
-                            {formData.title || 'Notification Title'}
-                          </h4>
-                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
-                            {formData.message || 'Notification message will appear here...'}
-                          </p>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                            <Badge variant="outline" className="text-xs">
-                              {getCategoryLabel(formData.category)}
-                            </Badge>
-                            {formData.category === 'property-detail' && formData.propertyId && (
-                              <Badge variant="outline" className="text-xs">
-                                Property Selected
-                              </Badge>
-                            )}
-                            {formData.category === 'custom' && formData.customUrl && (
-                              <Badge variant="outline" className="text-xs">
-                                {formData.customUrl}
-                              </Badge>
+                {/* Preview/Sending/Success Panel */}
+                {rightPanelMode !== 'none' && (
+                  <div className="mt-6">
+                    {rightPanelMode === 'preview' && (
+                      <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-slate-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Preview</h3>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setRightPanelMode('none')}
+                              className="h-8 w-8 p-0"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+
+                          {/* Preview Card */}
+                          <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl p-6 border border-blue-200/50 dark:border-blue-700/50 shadow-lg">
+                            <div className="flex items-start gap-3 mb-4">
+                              <div className="p-2 bg-blue-500/10 dark:bg-blue-400/20 rounded-lg">
+                                {React.createElement(getCategoryIcon(formData.category), { className: "w-5 h-5 text-blue-600 dark:text-blue-400" })}
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-lg mb-1">
+                                  {formData.title || 'Notification Title'}
+                                </h4>
+                                <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                                  {formData.message || 'Notification message will appear here...'}
+                                </p>
+                                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                  <Badge variant="outline" className="text-xs">
+                                    {getCategoryLabel(formData.category)}
+                                  </Badge>
+                                  {formData.category === 'property-detail' && formData.propertyId && (
+                                    <Badge variant="outline" className="text-xs">
+                                      Property Selected
+                                    </Badge>
+                                  )}
+                                  {formData.category === 'custom' && formData.customUrl && (
+                                    <Badge variant="outline" className="text-xs">
+                                      {formData.customUrl}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Selected Users */}
+                            {selectedUsers.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-blue-200/50 dark:border-blue-700/50">
+                                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                                  Recipients ({selectedUsers.length})
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedUsers.slice(0, 5).map((user) => (
+                                    <Badge key={user.id} variant="default" className="text-xs">
+                                      {user.fullName || user.name || user.email}
+                                    </Badge>
+                                  ))}
+                                  {selectedUsers.length > 5 && (
+                                    <Badge variant="outline" className="text-xs">
+                                      +{selectedUsers.length - 5} more
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
                             )}
                           </div>
                         </div>
-                      </div>
+                      </Card>
+                    )}
 
-                      {/* Selected Users */}
-                      {selectedUsers.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-blue-200/50 dark:border-blue-700/50">
-                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                            Recipients ({selectedUsers.length})
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedUsers.slice(0, 5).map((user) => (
-                              <Badge key={user.id} variant="default" className="text-xs">
-                                {user.fullName || user.name || user.email}
-                              </Badge>
-                            ))}
-                            {selectedUsers.length > 5 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{selectedUsers.length - 5} more
-                              </Badge>
-                            )}
+                    {rightPanelMode === 'sending' && (
+                      <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
+                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                          <div className="relative">
+                            <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Send className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                              Sending Notification...
+                            </h3>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Please wait while we send your notification
+                            </p>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              )}
+                      </Card>
+                    )}
 
-              {rightPanelMode === 'sending' && (
-                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/10 dark:border-slate-700/50 shadow-lg">
-                  <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                    <div className="relative">
-                      <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 dark:border-t-blue-400 rounded-full animate-spin"></div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Send className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                        Sending Notification...
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Please wait while we send your notification
-                      </p>
-                    </div>
+                    {rightPanelMode === 'success' && (
+                      <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-green-200/50 dark:border-green-700/50 shadow-lg">
+                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+                          </div>
+                          <div className="text-center">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                              Sent Successfully!
+                            </h3>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Your notification has been sent to all recipients
+                            </p>
+                          </div>
+                        </div>
+                      </Card>
+                    )}
                   </div>
-                </Card>
-              )}
-
-              {rightPanelMode === 'success' && (
-                <Card className="p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-green-200/50 dark:border-green-700/50 shadow-lg">
-                  <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                    <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-                      <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div className="text-center">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                        Sent Successfully!
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Your notification has been sent to all recipients
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              )}
+                )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
+
       ) : (
         <div className="space-y-6">
           {/* Summary Cards Row */}
