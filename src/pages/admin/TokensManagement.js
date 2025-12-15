@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { 
   Coins, 
+  Search,
   Building2,
   TrendingUp,
   Users,
@@ -340,7 +341,7 @@ const TokensManagement = () => {
   // Filter and sort tokens
   const filteredAndSortedTokens = useMemo(() => {
     let filtered = tokensData.filter(token => {
-      const search = (filters.search || '').toLowerCase();
+      const search = (searchTerm || '').toLowerCase();
       if (!search) return true;
       
       return (
@@ -353,7 +354,7 @@ const TokensManagement = () => {
     filtered.sort((a, b) => {
       let aValue, bValue;
       
-      switch (filters.sort_by) {
+      switch (sortBy) {
         case 'totalTokens':
           aValue = a.totalTokens;
           bValue = b.totalTokens;
@@ -369,7 +370,7 @@ const TokensManagement = () => {
           break;
       }
 
-      if (filters.sort_order === 'asc') {
+      if (sortOrder === 'asc') {
         return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
       } else {
         return aValue < bValue ? 1 : aValue > bValue ? -1 : 0;
@@ -377,7 +378,7 @@ const TokensManagement = () => {
     });
 
     return filtered;
-  }, [tokensData, filters]);
+  }, [tokensData, searchTerm, sortBy, sortOrder]);
 
   const formatNumber = (num) => {
     if (num === 0) return '0';
@@ -934,7 +935,7 @@ const TokensManagement = () => {
 
   // Render Token Details View (Legacy - keeping for backward compatibility)
   const renderTokenDetails = () => {
-    if (!selectedToken) {
+    if (!selectedProperty) {
       return (
         <div className="text-center py-12">
           <Coins className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
@@ -943,7 +944,7 @@ const TokensManagement = () => {
       );
     }
 
-    const token = selectedToken;
+    const token = selectedProperty;
     const ownershipData = generateMockOwnershipData(investmentsData, token.propertyId);
     const totalOwnership = ownershipData.reduce((sum, inv) => sum + inv.tokens, 0);
     const priceHistory = generateMockPriceHistory(token.pricePerToken, 30);
@@ -1000,8 +1001,14 @@ const TokensManagement = () => {
                 Select Token
               </label>
               <select
-                value={selectedTokenId || ''}
-                onChange={(e) => setSelectedTokenId(e.target.value || null)}
+                value={selectedPropertyId || ''}
+                onChange={(e) => {
+                  const propId = e.target.value || null;
+                  if (propId) {
+                    setSelectedPropertyId(propId);
+                    setViewLevel('PROPERTY');
+                  }
+                }}
                 className="w-full md:w-96 px-4 py-2 border border-input bg-card text-card-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
               >
                 <option value="">— Select a token —</option>
@@ -1014,7 +1021,7 @@ const TokensManagement = () => {
             </div>
             <Button
               variant="outline"
-              onClick={() => setViewMode('overview')}
+              onClick={() => navigateToOrg()}
               className="ml-4"
             >
               Back to Overview
