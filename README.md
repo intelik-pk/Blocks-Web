@@ -1,6 +1,6 @@
 # HMR Builders - Real Estate Tokenization Platform
 
-A modern React-based frontend for the HMR Builders Real Estate Tokenization Platform with multi-organization support, admin dashboards, and comprehensive property investment management.
+A modern React-based frontend for the HMR Builders Real Estate Tokenization Platform with multi-organization support, admin dashboards, and comprehensive property investment management..
 
 ## 🚀 Project Overview
 
