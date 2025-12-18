@@ -1015,7 +1015,7 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
               </div>
 
               {/* User List (Scrollable) */}
-              <div className="flex-1 overflow-y-auto p-4 max-h-[calc(100vh-20rem)]">
+              <div className="flex-1 overflow-y-auto p-4 h-[calc(100vh-20rem)]">
                 {usersLoading ? (
                   <div className="text-center py-8">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
@@ -1029,7 +1029,7 @@ const NotificationsManagement = ({ activeView = 'send' }) => {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-1">
+                  <div className="space-y-1 max-h-[45vh] overflow-y-auto">
                     {filteredUsers.map((user) => {
                       const isSelected = selectedUsers.some(u => u.id === user.id);
                       return (

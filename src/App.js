@@ -20,6 +20,7 @@ import KYCUpload from './pages/user/KYCUpload';
 import KYCDetails from './pages/user/KYCDetails';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminLogin from './pages/admin/AdminLogin';
+import AdminSignup from './pages/admin/AdminSignup';
 import AdminPropertyDetail from './pages/admin/PropertyDetail';
 import AdminNotifications from './pages/admin/AdminNotifications';
 import PropertyDetail from './pages/PropertyDetail';
@@ -75,6 +76,11 @@ function App() {
                 <Route path="/admin/login" element={
                   <AdminAuthProvider>
                     <AdminLogin />
+                  </AdminAuthProvider>
+                } />
+                <Route path="/admin/signup" element={
+                  <AdminAuthProvider>
+                    <AdminSignup />
                   </AdminAuthProvider>
                 } />
                 <Route path="/admin" element={

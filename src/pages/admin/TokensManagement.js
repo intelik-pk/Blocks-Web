@@ -23,7 +23,8 @@ import {
   Edit,
   ArrowLeft,
   ChevronRight,
-  X
+  X,
+  Filter
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Card from '../../components/ui/Card';
@@ -32,7 +33,8 @@ import Badge from '../../components/ui/Badge';
 import { adminAPI, organizationsAPI, investmentsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import Loader from '../../components/Loder';
-import TokenFilters from '../../components/tokens/TokenFilters';
+import { cn } from '../../utils/cn';
+import InputTwo from '../../components/ui/InputTwo';
 
 const TokensManagement = () => {
   const { isAuthenticated } = useAdminAuth();
@@ -55,10 +57,40 @@ const TokensManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('name'); // 'name', 'totalTokens', 'boughtTokens'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
+  const [openFilterPanel, setOpenFilterPanel] = useState(null);
+  const filterPanelRef = React.useRef(null);
   
-  // Level 2 filters
-  const [propertySearchTerm, setPropertySearchTerm] = useState('');
-  const [propertyStatusFilter, setPropertyStatusFilter] = useState('all');
+  // Expanded organizations state for collapsible rows
+  const [expandedOrgIds, setExpandedOrgIds] = useState(new Set());
+  
+  // Handle click outside to close filter panels
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target)) {
+        setOpenFilterPanel(null);
+      }
+    };
+
+    if (openFilterPanel) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [openFilterPanel]);
+  
+  // Toggle organization expansion
+  const toggleOrgExpansion = (orgId) => {
+    setExpandedOrgIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orgId)) {
+        newSet.delete(orgId);
+      } else {
+        newSet.add(orgId);
+      }
+      return newSet;
+    });
+  };
 
   // Fetch all organizations
   const { data: organizationsData, isLoading: isLoadingOrgs, error: orgsError } = useQuery(
@@ -270,67 +302,6 @@ const TokensManagement = () => {
     return tokensData.find(org => org.id === selectedOrgId);
   }, [selectedOrgId, tokensData]);
 
-  // Get properties for selected organization
-  const orgProperties = useMemo(() => {
-    if (!selectedOrgId || !propertiesData?.data) return [];
-    
-    const properties = Array.isArray(propertiesData.data)
-      ? propertiesData.data
-      : propertiesData.data?.data?.properties || propertiesData.data?.properties || [];
-
-    return properties
-      .filter(prop => {
-        const orgId = prop.organizationId || prop.organization?.id || prop.organization?.displayCode;
-        return orgId === selectedOrgId;
-      })
-      .map(prop => {
-        const totalTokens = parseFloat(prop.totalTokens || prop.tokenization_total_tokens || 0);
-        const availableTokens = parseFloat(prop.availableTokens || prop.tokenization_available_tokens || 0);
-        const pricePerToken = parseFloat(prop.pricePerTokenUSDT || prop.price_per_token_usdt || 0);
-        const totalValue = parseFloat(prop.totalValueUSDT || prop.total_value_usdt || 0);
-        const soldTokens = totalTokens - availableTokens;
-        
-        // Get investments for this property
-        const investments = Array.isArray(investmentsData?.data)
-          ? investmentsData.data
-          : investmentsData?.data?.data || investmentsData?.data || [];
-        
-        const propInvestments = investments.filter(inv => {
-          const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
-          return (prop.id === invPropertyId || prop.displayCode === invPropertyId) &&
-                 (inv.status === 'confirmed' || inv.status === 'active');
-        });
-
-        const totalInvestment = propInvestments.reduce((sum, inv) => {
-          return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
-        }, 0);
-
-        return {
-          id: prop.id,
-          displayCode: prop.displayCode,
-          name: prop.title || 'Unknown Property',
-          status: prop.status || 'active',
-          pricePerToken: pricePerToken || (totalTokens > 0 ? totalValue / totalTokens : 0),
-          totalTokens: totalTokens,
-          soldTokens: soldTokens,
-          availableTokens: availableTokens,
-          totalValue: totalValue || (pricePerToken * totalTokens),
-          totalInvestment: totalInvestment,
-          fundingPercentage: totalTokens > 0 ? (soldTokens / totalTokens) * 100 : 0
-        };
-      });
-  }, [selectedOrgId, propertiesData, investmentsData]);
-
-  // Filtered properties for Level 2
-  const filteredOrgProperties = useMemo(() => {
-    let filtered = orgProperties.filter(prop => {
-      const matchesSearch = prop.name.toLowerCase().includes(propertySearchTerm.toLowerCase()) ||
-                           (prop.displayCode || '').toLowerCase().includes(propertySearchTerm.toLowerCase());
-      const matchesStatus = propertyStatusFilter === 'all' || prop.status === propertyStatusFilter;
-      return matchesSearch && matchesStatus;
-    });
-    return filtered;
-  }, [orgProperties, propertySearchTerm, propertyStatusFilter]);
 
   // Get selected property details
   const selectedProperty = useMemo(() => {
@@ -428,24 +399,7 @@ const TokensManagement = () => {
     }));
   };
 
-  // Generate mock data for charts and missing data
-  const generateMockPriceHistory = (basePrice, days = 30) => {
-    const data = [];
-    const today = new Date();
-    for (let i = days; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const variation = (Math.random() - 0.5) * 0.1; // ±5% variation
-      data.push({
-        date: date.toISOString().split('T')[0],
-        price: basePrice * (1 + variation),
-        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      });
-    }
-    return data;
-  };
-
-  const generateMockOwnershipData = (investmentsData, propertyId) => {
+  const generateOwnershipData = (investmentsData, propertyId) => {
     if (!investmentsData?.data) return [];
     
     const investments = Array.isArray(investmentsData.data)
@@ -502,16 +456,26 @@ const TokensManagement = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  // Side panel state for property details
+  const [selectedPropertyForPanel, setSelectedPropertyForPanel] = useState(null);
+  
   // Navigation helpers
-  const navigateToProperties = (orgId) => {
-    setSelectedOrgId(orgId);
-    setViewLevel('PROPERTIES');
-    setSelectedPropertyId(null);
-  };
-
   const navigateToProperty = (propertyId) => {
     setSelectedPropertyId(propertyId);
     setViewLevel('PROPERTY');
+  };
+  
+  // Open property details in side panel
+  const openPropertyPanel = (propertyId) => {
+    const property = individualTokens.find(t => t.id === propertyId);
+    if (property) {
+      setSelectedPropertyForPanel(property);
+    }
+  };
+  
+  // Close property panel
+  const closePropertyPanel = () => {
+    setSelectedPropertyForPanel(null);
   };
 
   const navigateToOrg = () => {
@@ -521,7 +485,7 @@ const TokensManagement = () => {
   };
 
   const navigateBackToProperties = () => {
-    setViewLevel('PROPERTIES');
+    setViewLevel('ORG');
     setSelectedPropertyId(null);
   };
 
@@ -702,91 +666,234 @@ const TokensManagement = () => {
 
 
       {/* Filters */}
-      <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Search
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                  placeholder="Search organizations..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border rounded-lg bg-card text-card-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:border-ring"
-              />
+      <Card variant="primary" className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-2">
+            <Filter className="w-5 h-5 text-muted-foreground" />
+            <h3 className="text-lg font-semibold text-card-foreground">Filters</h3>
+            {(searchTerm || sortBy !== 'name' || sortOrder !== 'asc') && (
+              <Badge variant="info" className="ml-2">
+                {[searchTerm, sortBy !== 'name' || sortOrder !== 'asc'].filter(Boolean).length} active
+              </Badge>
+            )}
+          </div>
+          {(searchTerm || sortBy !== 'name' || sortOrder !== 'asc') && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                setSearchTerm('');
+                setSortBy('name');
+                setSortOrder('asc');
+              }}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              Clear All Filters
+            </Button>
+          )}
+        </div>
+
+        <div className="relative w-full space-y-4" ref={filterPanelRef}>
+          {/* Top Row: Search + Single Filters Button */}
+          <div className="flex gap-4">
+            {/* Search Input - Takes most space */}
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Search Organizations
+              </label>
+              <div className="relative">
+                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                <InputTwo
+                  type="text"
+                  name="search"
+                  placeholder="Search by organization name, display code..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                  style={{ paddingLeft: '48px' }}
+                />
+              </div>
+            </div>
+
+            {/* Single Unified Filters Button */}
+            <div className="flex-shrink-0">
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Filters
+              </label>
+              <button
+                type="button"
+                onClick={() => setOpenFilterPanel(prev => prev === 'main' ? null : 'main')}
+                className={cn(
+                  "px-5 py-2 border rounded-lg bg-card text-card-foreground flex items-center gap-2 transition-all hover:border-primary/50 min-w-[120px]",
+                  openFilterPanel === 'main' || (sortBy !== 'name' || sortOrder !== 'asc')
+                    ? 'border-primary bg-accent font-semibold' 
+                    : 'border-input'
+                )}
+              >
+                <Filter className="w-4 h-4" />
+                <span className="text-sm">Filters</span>
+                {(sortBy !== 'name' || sortOrder !== 'asc') && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">
+                    {(sortBy !== 'name' || sortOrder !== 'asc') ? 1 : 0}
+                  </span>
+                )}
+                <span className={cn(
+                  "transition-transform duration-200",
+                  openFilterPanel === 'main' ? "rotate-180" : ""
+                )}>▼</span>
+              </button>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Sort By
-            </label>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full px-3 py-2 border border-input bg-card text-card-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-                <option value="name">Organization Name</option>
-              <option value="totalTokens">Total Tokens</option>
-              <option value="boughtTokens">Bought Tokens</option>
-            </select>
-          </div>
+          {/* Expanded Filter Panel */}
+          {openFilterPanel === 'main' && (
+            <div className="w-full rounded-xl p-6 bg-gradient-to-br from-white/80 to-white/60 dark:from-slate-900/80 dark:to-slate-900/60 backdrop-blur-xl border border-white/30 dark:border-slate-700/50 shadow-xl animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Sort By Section */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-1 h-4 bg-orange-600 rounded-full"></span>
+                    Sort By
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'name', label: 'Organization Name' },
+                      { value: 'totalTokens', label: 'Total Tokens' },
+                      { value: 'boughtTokens', label: 'Bought Tokens' }
+                    ].map((option) => {
+                      const isActive = sortBy === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSortBy(option.value)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                            isActive
+                              ? "bg-orange-600 text-white border-orange-600 shadow-md"
+                              : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-orange-50 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Order
-            </label>
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-              className="w-full px-3 py-2 border border-input bg-card text-card-foreground rounded-lg focus:ring-2 focus:ring-ring focus:border-ring"
-            >
-              <option value="asc">Ascending ↑</option>
-              <option value="desc">Descending ↓</option>
-            </select>
-          </div>
+                {/* Sort Order Section */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-1 h-4 bg-pink-600 rounded-full"></span>
+                    Sort Order
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'asc', label: 'Ascending ↑' },
+                      { value: 'desc', label: 'Descending ↓' }
+                    ].map((option) => {
+                      const isActive = sortOrder === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSortOrder(option.value)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200 text-xs font-medium",
+                            isActive
+                              ? "bg-pink-600 text-white border-pink-600 shadow-md"
+                              : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-pink-50 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Active Filters Chips Bar */}
+          {(searchTerm || sortBy !== 'name' || sortOrder !== 'asc') && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Search chip */}
+              {searchTerm && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                  onClick={() => setSearchTerm('')}
+                >
+                  <span>Search: "{searchTerm}"</span>
+                  <X className="w-3 h-3" />
+                </div>
+              )}
+              
+              {/* Sort chip */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium shadow-sm">
+                <span>{sortBy === 'name' ? 'Name' : 
+                          sortBy === 'totalTokens' ? 'Total Tokens' : 'Bought Tokens'}</span>
+                <span>{sortOrder === 'desc' ? '↓' : '↑'}</span>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
         {/* Organizations Table with Properties */}
       <Card>
+        <style>{`
+          @keyframes slideDown {
+            from {
+              opacity: 0;
+              transform: translateY(-10px) scaleY(0.95);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) scaleY(1);
+            }
+          }
+        `}</style>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '13%' }} />
+            </colgroup>
             <thead className="bg-muted">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Organization
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <th className="px-6 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Properties
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Total Tokens
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Sold Tokens
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Available Tokens
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Total Value
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Progress
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Actions
                 </th>
               </tr>
             </thead>
             <tbody className="bg-card divide-y divide-border">
               {filteredAndSortedTokens.length === 0 ? (
                 <tr>
-                    <td colSpan="8" className="px-6 py-12 text-center">
+                    <td colSpan="7" className="px-6 py-12 text-center">
                     <Coins className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
                       <p className="text-muted-foreground">No organizations found</p>
                   </td>
@@ -798,12 +905,33 @@ const TokensManagement = () => {
                       t.organizationId === org.id
                     );
 
+                    const isExpanded = expandedOrgIds.has(org.id);
+                    
                     return (
                       <React.Fragment key={org.id}>
                         {/* Organization Row */}
-                        <tr className="hover:bg-accent transition-colors bg-muted/30">
+                        <tr 
+                          className="hover:bg-accent  transition-colors bg-muted/30 cursor-pointer"
+                          onClick={(e) => {
+                            // Only toggle if clicking on the row itself, not on buttons
+                            if (e.target.closest('button') === null) {
+                              toggleOrgExpansion(org.id);
+                            }
+                          }}
+                        >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleOrgExpansion(org.id);
+                          }}
+                          className="flex items-center justify-center w-5 h-5 hover:bg-accent rounded transition-transform duration-200"
+                          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                        >
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                        <div>
                               <div className="text-sm font-semibold text-card-foreground">
                                 {org.name}
                         </div>
@@ -811,38 +939,39 @@ const TokensManagement = () => {
                                 {org.displayCode}
                         </div>
                       </div>
+                      </div>
                     </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
                             <Badge variant="info">
                               {org.propertyCount} {org.propertyCount === 1 ? 'property' : 'properties'}
                             </Badge>
                           </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-card-foreground">
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end text-sm text-card-foreground">
                         <Coins className="w-4 h-4 mr-1 text-blue-600" />
                               <span className="font-semibold">{formatNumber(org.totalTokens)}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-card-foreground">
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end text-sm text-card-foreground">
                         <TrendingUp className="w-4 h-4 mr-1 text-green-600" />
                               <span className="font-semibold text-green-600">{formatNumber(org.boughtTokens)}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-card-foreground">
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end text-sm text-card-foreground">
                         <Coins className="w-4 h-4 mr-1 text-orange-600" />
                               <span className="font-semibold">{formatNumber(org.availableTokens)}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-card-foreground">
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end text-sm text-card-foreground">
                         <DollarSign className="w-4 h-4 mr-1 text-purple-600" />
                               <span className="font-semibold text-purple-600">{formatCurrency(org.totalInvestment)}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
+                      <div className="flex items-center justify-center">
                         <div className="w-24 bg-muted rounded-full h-2 mr-2">
                           <div
                             className={`h-2 rounded-full ${
@@ -857,68 +986,70 @@ const TokensManagement = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => navigateToProperties(org.id)}
-                            >
-                              View Properties
-                            </Button>
-                    </td>
                   </tr>
                         
-                        {/* Properties Rows (expandable or visible) */}
-                        {orgProps.map((prop) => (
+                        {/* Properties Rows (collapsible) */}
+                        {isExpanded && orgProps.map((prop, index) => (
                           <tr 
                             key={prop.id} 
-                            className="hover:bg-accent/50 transition-colors cursor-pointer"
-                            onClick={() => navigateToProperty(prop.id)}
+                            className="hover:bg-accent/50 cursor-pointer bg-muted/10"
+                            style={{
+                              animation: `slideDown 0.3s ease-out ${index * 0.05}s both`,
+                              transformOrigin: 'top'
+                            }}
+                            onClick={(e) => {
+                              if (e.target.closest('button') === null) {
+                                openPropertyPanel(prop.id);
+                              }
+                            }}
                           >
-                            <td className="px-6 py-3 pl-12 text-sm text-muted-foreground">
-                              <ChevronRight className="w-4 h-4 inline mr-2" />
-                              {prop.propertyName}
-                            </td>
-                            <td className="px-6 py-3">
-                              {getStatusBadge(prop.status)}
-                            </td>
-                            <td className="px-6 py-3 text-sm text-card-foreground">
-                              {formatCurrency(prop.pricePerToken)}
-                            </td>
-                            <td className="px-6 py-3 text-sm text-card-foreground">
-                              {formatNumber(prop.totalTokens)}
-                            </td>
-                            <td className="px-6 py-3 text-sm text-green-600">
-                              {formatNumber(prop.soldTokens)}
-                            </td>
-                            <td className="px-6 py-3 text-sm text-orange-600">
-                              {formatNumber(prop.availableTokens)}
-                            </td>
-                            <td className="px-6 py-3 text-sm text-card-foreground">
-                              {formatCurrency(prop.totalTokenValue)}
-                            </td>
-                            <td className="px-6 py-3">
-                              <div className="w-24 bg-muted rounded-full h-2">
-                                <div
-                                  className={`h-2 rounded-full ${
-                                    prop.fundingPercentage >= 50 ? 'bg-green-600' : 
-                                    prop.fundingPercentage >= 25 ? 'bg-yellow-600' : 'bg-blue-600'
-                                  }`}
-                                  style={{ width: `${Math.min(prop.fundingPercentage, 100)}%` }}
-                                ></div>
+                            <td className="px-6 py-3 pl-12 whitespace-nowrap">
+                              <div className="text-sm text-muted-foreground">
+                                {prop.propertyName}
                               </div>
                             </td>
-                            <td className="px-6 py-3">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigateToProperty(prop.id);
-                                }}
-                              >
-                                Details
-                              </Button>
+                            <td className="px-6 py-3 whitespace-nowrap text-center">
+                              {getStatusBadge(prop.status)}
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end text-sm text-card-foreground">
+                                <Coins className="w-4 h-4 mr-1 text-blue-600" />
+                                <span className="font-semibold">{formatNumber(prop.totalTokens)}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end text-sm text-card-foreground">
+                                <TrendingUp className="w-4 h-4 mr-1 text-green-600" />
+                                <span className="font-semibold text-green-600">{formatNumber(prop.soldTokens)}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end text-sm text-card-foreground">
+                                <Coins className="w-4 h-4 mr-1 text-orange-600" />
+                                <span className="font-semibold">{formatNumber(prop.availableTokens)}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end text-sm text-card-foreground">
+                                <DollarSign className="w-4 h-4 mr-1 text-purple-600" />
+                                <span className="font-semibold text-purple-600">{formatCurrency(prop.totalTokenValue)}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap">
+                              <div className="flex items-center justify-center">
+                                <div className="w-24 bg-muted rounded-full h-2 mr-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      prop.fundingPercentage >= 50 ? 'bg-green-600' : 
+                                      prop.fundingPercentage >= 25 ? 'bg-yellow-600' : 'bg-blue-600'
+                                    }`}
+                                    style={{ width: `${Math.min(prop.fundingPercentage, 100)}%` }}
+                                  ></div>
+                                </div>
+                                <span className="text-sm font-medium text-card-foreground">
+                                  {prop.fundingPercentage.toFixed(1)}%
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -946,9 +1077,8 @@ const TokensManagement = () => {
     }
 
     const token = selectedProperty;
-    const ownershipData = generateMockOwnershipData(investmentsData, token.propertyId);
+    const ownershipData = generateOwnershipData(investmentsData, token.propertyId);
     const totalOwnership = ownershipData.reduce((sum, inv) => sum + inv.tokens, 0);
-    const priceHistory = generateMockPriceHistory(token.pricePerToken, 30);
     
     // Calculate ownership percentages
     const ownershipWithPercentages = ownershipData.map(inv => ({
@@ -966,31 +1096,6 @@ const TokensManagement = () => {
     // Top 5 holders for bar chart
     const topHolders = ownershipWithPercentages.slice(0, 5);
 
-    // Mock yield data
-    const yieldData = [
-      { period: 'Q1 2024', payout: 12500, yield: 8.5 },
-      { period: 'Q2 2024', payout: 13200, yield: 8.7 },
-      { period: 'Q3 2024', payout: 14100, yield: 9.0 },
-      { period: 'Q4 2024', payout: 13800, yield: 8.9 }
-    ];
-
-    // Mock sales velocity data
-    const salesVelocityData = Array.from({ length: 12 }, (_, i) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - (11 - i));
-      return {
-        month: date.toLocaleDateString('en-US', { month: 'short' }),
-        unitsSold: Math.floor(Math.random() * 500) + 100,
-        investors: Math.floor(Math.random() * 20) + 5
-      };
-    });
-
-    // Mock audit log
-    const auditLog = [
-      { action: 'Price Update', field: 'Price Per Token', oldValue: '$45.20', newValue: '$46.50', by: 'Admin User', date: '2024-01-15' },
-      { action: 'Status Change', field: 'Status', oldValue: 'Draft', newValue: 'Active', by: 'Admin User', date: '2024-01-10' },
-      { action: 'Token Allocation', field: 'Available Tokens', oldValue: '10,000', newValue: '9,500', by: 'System', date: '2024-01-08' }
-    ];
 
     return (
       <div className="space-y-6">
@@ -1116,7 +1221,7 @@ const TokensManagement = () => {
           </Card>
         )}
 
-        {/* P1: Valuation & Pricing */}
+        {/* P1: Valuation & Pricing - Removed mock data */}
         {expandedSections.valuation ? (
           <Card className="p-6">
             <div className="flex items-center justify-between mb-6">
@@ -1133,52 +1238,23 @@ const TokensManagement = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-muted-foreground mb-1">Current Price</p>
                 <p className="text-2xl font-bold text-blue-600">{formatCurrency(token.pricePerToken)}</p>
               </div>
               <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Min Price (30d)</p>
+                <p className="text-sm text-muted-foreground mb-1">Total Token Value</p>
                 <p className="text-xl font-semibold text-card-foreground">
-                  {formatCurrency(Math.min(...priceHistory.map(p => p.price)))}
+                  {formatCurrency(token.totalTokenValue)}
                 </p>
               </div>
               <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Max Price (30d)</p>
+                <p className="text-sm text-muted-foreground mb-1">Total Investment</p>
                 <p className="text-xl font-semibold text-card-foreground">
-                  {formatCurrency(Math.max(...priceHistory.map(p => p.price)))}
+                  {formatCurrency(token.totalInvestment)}
                 </p>
               </div>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-sm text-muted-foreground mb-2">
-                Last Valuation: {formatDate(new Date().toISOString())}
-              </p>
-            </div>
-
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={priceHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="label" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
-                  <Tooltip 
-                    formatter={(value) => formatCurrency(value)}
-                    contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', border: '1px solid #e5e7eb' }}
-                  />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    name="Price per Token"
-                    dot={{ r: 3 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
             </div>
           </Card>
         ) : (
@@ -1395,422 +1471,12 @@ const TokensManagement = () => {
           </Card>
         )}
 
-        {/* P2: Yield & Returns */}
-        {expandedSections.yield ? (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Yield & Returns
-              </h3>
-              <button onClick={() => toggleSection('yield')}>
-                {expandedSections.yield ? (
-                  <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                )}
-              </button>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                <p className="text-sm text-muted-foreground mb-1">Expected Annual Yield</p>
-                <p className="text-2xl font-bold text-green-600">8.5%</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Distribution Frequency</p>
-                <p className="text-xl font-semibold text-card-foreground">Quarterly</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Last Payout</p>
-                <p className="text-xl font-semibold text-card-foreground">{formatDate('2024-01-15')}</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Next Payout</p>
-                <p className="text-xl font-semibold text-card-foreground">{formatDate('2024-04-15')}</p>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Payouts per Period</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={yieldData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="period" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip formatter={(value) => formatCurrency(value)} />
-                      <Legend />
-                      <Bar dataKey="payout" fill="#10b981" name="Payout (USD)" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Yield Over Time</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={yieldData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="period" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip formatter={(value) => `${value}%`} />
-                      <Legend />
-                      <Line type="monotone" dataKey="yield" stroke="#3b82f6" strokeWidth={2} name="Yield %" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          </Card>
-        ) : (
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Yield & Returns
-              </h3>
-              <button onClick={() => toggleSection('yield')}>
-                <ChevronDown className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-          </Card>
-        )}
-
-        {/* P2: Performance Analytics */}
-        {expandedSections.performance ? (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <Activity className="w-5 h-5" />
-                Performance Analytics
-              </h3>
-              <button onClick={() => toggleSection('performance')}>
-                {expandedSections.performance ? (
-                  <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                )}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Sales Velocity (Units Sold)</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={salesVelocityData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="month" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="unitsSold" stroke="#3b82f6" strokeWidth={2} name="Units Sold" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Investor Growth</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={salesVelocityData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="month" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="investors" stroke="#10b981" strokeWidth={2} name="Investor Count" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                <strong>Top 10 Concentration:</strong> {
-                  ownershipWithPercentages.slice(0, 10).reduce((sum, inv) => sum + inv.percentage, 0).toFixed(2)
-                }% of total tokens
-                </p>
-              </div>
-          </Card>
-        ) : (
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <Activity className="w-5 h-5" />
-                Performance Analytics
-              </h3>
-              <button onClick={() => toggleSection('performance')}>
-                <ChevronDown className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-          </Card>
-        )}
-
-        {/* P3: Audit & Reporting */}
-        {expandedSections.audit ? (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Audit & Reporting
-              </h3>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportToCSV([token], `token-summary-${token.displayCode || token.id}.csv`)}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Summary
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportToCSV(ownershipWithPercentages, `token-ownership-${token.displayCode || token.id}.csv`)}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Ownership
-                </Button>
-                <button onClick={() => toggleSection('audit')}>
-                  {expandedSections.audit ? (
-                    <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h4 className="text-sm font-semibold text-card-foreground mb-4">Change Log</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Action</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Old → New</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">By</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {auditLog.map((log, idx) => (
-                      <tr key={idx} className="hover:bg-accent">
-                        <td className="px-4 py-3 text-sm text-card-foreground">{log.action}</td>
-                        <td className="px-4 py-3 text-sm text-card-foreground">{log.field}</td>
-                        <td className="px-4 py-3 text-sm text-card-foreground">
-                          <span className="text-muted-foreground">{log.oldValue}</span>
-                          <span className="mx-2">→</span>
-                          <span className="font-semibold">{log.newValue}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">{log.by}</td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(log.date)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </Card>
-        ) : (
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Audit & Reporting
-              </h3>
-              <button onClick={() => toggleSection('audit')}>
-                <ChevronDown className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-          </Card>
-        )}
       </div>
     );
   };
 
-  // Render Level 2: Properties Breakdown Panel
-  const renderLevel2PropertiesPanel = () => {
-    if (!selectedOrg) return null;
-
-    const orgTotalValue = filteredOrgProperties.reduce((sum, p) => sum + p.totalValue, 0);
-    const orgTotalTokens = filteredOrgProperties.reduce((sum, p) => sum + p.totalTokens, 0);
-    const orgSoldTokens = filteredOrgProperties.reduce((sum, p) => sum + p.soldTokens, 0);
-
-    return (
-      <>
-        {/* Backdrop */}
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-300"
-          onClick={() => navigateToOrg()}
-        />
-        
-        {/* Side Panel */}
-        <div 
-          className="fixed right-0 top-0 bottom-0 w-full md:w-[600px] lg:w-[700px] z-[60] flex flex-col shadow-2xl"
-          style={{
-            animation: 'slideInFromRight 0.3s ease-out',
-          }}
-        >
-          <style>{`
-            @keyframes slideInFromRight {
-              from {
-                transform: translateX(100%);
-                opacity: 0;
-              }
-              to {
-                transform: translateX(0);
-                opacity: 1;
-              }
-            }
-          `}</style>
-          
-          <Card className="h-full flex flex-col rounded-none md:rounded-l-2xl shadow-2xl border-l border-border/50">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div>
-                <h3 className="text-xl font-bold text-card-foreground">{selectedOrg.name}</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {filteredOrgProperties.length} {filteredOrgProperties.length === 1 ? 'property' : 'properties'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigateToOrg()}
-                className="h-8 w-8 p-0"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Summary */}
-            <div className="p-6 border-b border-border bg-muted/30">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Value</p>
-                  <p className="text-lg font-bold text-card-foreground">{formatCurrency(orgTotalValue)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Total Tokens</p>
-                  <p className="text-lg font-bold text-blue-600">{formatNumber(orgTotalTokens)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
-                  <p className="text-lg font-bold text-green-600">{formatNumber(orgSoldTokens)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Available</p>
-                  <p className="text-lg font-bold text-orange-600">{formatNumber(orgTotalTokens - orgSoldTokens)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div className="p-6 border-b border-border space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Search Properties</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Search by name..."
-                    value={propertySearchTerm}
-                    onChange={(e) => setPropertySearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 border rounded-lg bg-card text-card-foreground"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Status Filter</label>
-                <select
-                  value={propertyStatusFilter}
-                  onChange={(e) => setPropertyStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-input bg-card text-card-foreground rounded-lg"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="active">Active</option>
-                  <option value="draft">Draft</option>
-                  <option value="closed">Closed</option>
-                  <option value="distribution">Distribution</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Properties List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {filteredOrgProperties.length === 0 ? (
-                <div className="text-center py-12">
-                  <Building2 className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                  <p className="text-muted-foreground">No properties found</p>
-                </div>
-              ) : (
-                filteredOrgProperties.map((prop) => (
-                  <Card key={prop.id} className="p-4 hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigateToProperty(prop.id)}>
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-card-foreground mb-1">{prop.name}</h4>
-                        <p className="text-xs text-muted-foreground">{prop.displayCode}</p>
-                      </div>
-                      {getStatusBadge(prop.status)}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Token Price</p>
-                        <p className="text-sm font-semibold text-card-foreground">{formatCurrency(prop.pricePerToken)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Total Value</p>
-                        <p className="text-sm font-semibold text-purple-600">{formatCurrency(prop.totalValue)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Sold</p>
-                        <p className="text-sm font-semibold text-green-600">{formatNumber(prop.soldTokens)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Available</p>
-                        <p className="text-sm font-semibold text-orange-600">{formatNumber(prop.availableTokens)}</p>
-                      </div>
-                    </div>
-                    <div className="mb-2">
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full ${
-                            prop.fundingPercentage >= 50 ? 'bg-green-600' : 
-                            prop.fundingPercentage >= 25 ? 'bg-yellow-600' : 'bg-blue-600'
-                          }`}
-                          style={{ width: `${Math.min(prop.fundingPercentage, 100)}%` }}
-                        ></div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{prop.fundingPercentage.toFixed(1)}% funded</p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full mt-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigateToProperty(prop.id);
-                      }}
-                    >
-                      View Property Details
-                    </Button>
-          </Card>
-                ))
-              )}
-        </div>
-          </Card>
-        </div>
-      </>
-    );
-  };
 
   // Render Level 3: Single Property Token Breakdown
   const renderLevel3PropertyDetails = () => {
@@ -1827,8 +1493,7 @@ const TokensManagement = () => {
     }
 
     const token = selectedProperty;
-    const ownershipData = generateMockOwnershipData(investmentsData, token.propertyId);
-    const priceHistory = generateMockPriceHistory(token.pricePerToken, 30);
+    const ownershipData = generateOwnershipData(investmentsData, token.propertyId);
     
     const ownershipWithPercentages = ownershipData.map(inv => ({
       ...inv,
@@ -1842,18 +1507,6 @@ const TokensManagement = () => {
     ];
 
     const topHolders = ownershipWithPercentages.slice(0, 5);
-    const yieldData = [
-      { period: 'Q1 2024', payout: 12500, yield: 8.5 },
-      { period: 'Q2 2024', payout: 13200, yield: 8.7 },
-      { period: 'Q3 2024', payout: 14100, yield: 9.0 },
-      { period: 'Q4 2024', payout: 13800, yield: 8.9 }
-    ];
-
-    const auditLog = [
-      { action: 'Price Update', field: 'Price Per Token', oldValue: '$45.20', newValue: '$46.50', by: 'Admin User', date: '2024-01-15' },
-      { action: 'Status Change', field: 'Status', oldValue: 'Draft', newValue: 'Active', by: 'Admin User', date: '2024-01-10' },
-      { action: 'Token Allocation', field: 'Available Tokens', oldValue: '10,000', newValue: '9,500', by: 'System', date: '2024-01-08' }
-    ];
 
     return (
       <div className="space-y-6">
@@ -1919,46 +1572,17 @@ const TokensManagement = () => {
                 <p className="text-2xl font-bold text-blue-600">{formatCurrency(token.pricePerToken)}</p>
               </div>
               <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Min Price (30d)</p>
+                <p className="text-sm text-muted-foreground mb-1">Total Token Value</p>
                 <p className="text-xl font-semibold text-card-foreground">
-                  {formatCurrency(Math.min(...priceHistory.map(p => p.price)))}
+                  {formatCurrency(token.totalTokenValue)}
                 </p>
               </div>
               <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Max Price (30d)</p>
+                <p className="text-sm text-muted-foreground mb-1">Total Investment</p>
                 <p className="text-xl font-semibold text-card-foreground">
-                  {formatCurrency(Math.max(...priceHistory.map(p => p.price)))}
+                  {formatCurrency(token.totalInvestment)}
                 </p>
               </div>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-sm text-muted-foreground mb-2">
-                Last Valuation: {formatDate(new Date().toISOString())}
-              </p>
-            </div>
-
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={priceHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="label" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
-                  <Tooltip 
-                    formatter={(value) => formatCurrency(value)}
-                    contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', border: '1px solid #e5e7eb' }}
-                  />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    name="Price per Token"
-                    dot={{ r: 3 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
             </div>
           </Card>
         )}
@@ -2115,169 +1739,20 @@ const TokensManagement = () => {
           </Card>
         )}
 
-        {/* Yield & Returns */}
-        {expandedSections.yield && (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Yield & Returns
-              </h3>
-              <button onClick={() => toggleSection('yield')}>
-                {expandedSections.yield ? (
-                  <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                )}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                <p className="text-sm text-muted-foreground mb-1">Expected Annual Yield</p>
-                <p className="text-2xl font-bold text-green-600">8.5%</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Distribution Frequency</p>
-                <p className="text-xl font-semibold text-card-foreground">Quarterly</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Last Payout</p>
-                <p className="text-xl font-semibold text-card-foreground">{formatDate('2024-01-15')}</p>
-              </div>
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">Next Payout</p>
-                <p className="text-xl font-semibold text-card-foreground">{formatDate('2024-04-15')}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Payouts per Period</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={yieldData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="period" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip formatter={(value) => formatCurrency(value)} />
-                      <Legend />
-                      <Bar dataKey="payout" fill="#10b981" name="Payout (USD)" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-semibold text-card-foreground mb-4">Yield Over Time</h4>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={yieldData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="period" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip formatter={(value) => `${value}%`} />
-                      <Legend />
-                      <Line type="monotone" dataKey="yield" stroke="#3b82f6" strokeWidth={2} name="Yield %" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* Audit & Reporting */}
-        {expandedSections.audit && (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-card-foreground flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Audit & Reporting
-              </h3>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportToCSV([token], `token-summary-${token.displayCode || token.id}.csv`)}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Summary
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportToCSV(ownershipWithPercentages, `token-ownership-${token.displayCode || token.id}.csv`)}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Ownership
-                </Button>
-                <button onClick={() => toggleSection('audit')}>
-                  {expandedSections.audit ? (
-                    <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-muted">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Action</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Field</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Old → New</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">By</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {auditLog.map((log, idx) => (
-                    <tr key={idx} className="hover:bg-accent">
-                      <td className="px-4 py-3 text-sm text-card-foreground">{log.action}</td>
-                      <td className="px-4 py-3 text-sm text-card-foreground">{log.field}</td>
-                      <td className="px-4 py-3 text-sm text-card-foreground">
-                        <span className="text-muted-foreground">{log.oldValue}</span>
-                        <span className="mx-2">→</span>
-                        <span className="font-semibold">{log.newValue}</span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{log.by}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(log.date)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
       </div>
     );
   };
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumbs (only show for Level 2 and 3) */}
-      {(viewLevel === 'PROPERTIES' || viewLevel === 'PROPERTY') && (
+      {/* Breadcrumbs (only show for Level 3) */}
+      {viewLevel === 'PROPERTY' && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <button onClick={() => navigateToOrg()} className="hover:text-card-foreground transition-colors">
             Organizations
           </button>
-          {viewLevel === 'PROPERTY' && (
-            <>
-              <ChevronRight className="w-4 h-4" />
-              <button onClick={() => navigateBackToProperties()} className="hover:text-card-foreground transition-colors">
-                {selectedOrg?.name || 'Properties'}
-              </button>
-            </>
-          )}
-          {viewLevel === 'PROPERTY' && (
-            <>
-              <ChevronRight className="w-4 h-4" />
-              <span className="text-card-foreground font-medium">{selectedProperty?.propertyName || 'Property'}</span>
-            </>
-          )}
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-card-foreground font-medium">{selectedProperty?.propertyName || 'Property'}</span>
         </div>
       )}
 
@@ -2290,7 +1765,6 @@ const TokensManagement = () => {
           </h2>
           <p className="text-muted-foreground">
             {viewLevel === 'ORG' && 'Organization-level token portfolio overview'}
-            {viewLevel === 'PROPERTIES' && `Properties under ${selectedOrg?.name || 'Organization'}`}
             {viewLevel === 'PROPERTY' && `Token details for ${selectedProperty?.propertyName || 'Property'}`}
           </p>
         </div>
@@ -2304,13 +1778,187 @@ const TokensManagement = () => {
 
       {/* Render based on view level */}
       {viewLevel === 'ORG' && renderLevel1OrgView()}
-      {viewLevel === 'PROPERTIES' && (
+      {viewLevel === 'PROPERTY' && renderLevel3PropertyDetails()}
+      
+      {/* Property Details Side Panel */}
+      {selectedPropertyForPanel && (
         <>
-          {renderLevel1OrgView()}
-          {renderLevel2PropertiesPanel()}
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-300"
+            onClick={closePropertyPanel}
+          />
+          
+          {/* Side Panel */}
+          <div 
+            className="fixed right-0 top-0 bottom-0 w-full md:w-[600px] lg:w-[700px] z-[60] flex flex-col shadow-2xl"
+            style={{
+              animation: 'slideInFromRight 0.3s ease-out',
+            }}
+          >
+            <style>{`
+              @keyframes slideInFromRight {
+                from {
+                  transform: translateX(100%);
+                  opacity: 0;
+                }
+                to {
+                  transform: translateX(0);
+                  opacity: 1;
+                }
+              }
+            `}</style>
+            
+            <Card className="h-full flex flex-col rounded-none md:rounded-l-2xl shadow-2xl border-l border-border/50">
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b border-border">
+                <div>
+                  <h3 className="text-xl font-bold text-card-foreground">{selectedPropertyForPanel.propertyName}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedPropertyForPanel.displayCode || selectedPropertyForPanel.id}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={closePropertyPanel}
+                  className="h-8 w-8 p-0"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Status */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Status</p>
+                  {getStatusBadge(selectedPropertyForPanel.status)}
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Price per Token</p>
+                    <p className="text-lg font-bold text-card-foreground">
+                      {formatCurrency(selectedPropertyForPanel.pricePerToken)}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Total Value</p>
+                    <p className="text-lg font-bold text-purple-600">
+                      {formatCurrency(selectedPropertyForPanel.totalTokenValue)}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Total Tokens</p>
+                    <p className="text-lg font-bold text-blue-600">
+                      {formatNumber(selectedPropertyForPanel.totalTokens)}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
+                    <p className="text-lg font-bold text-green-600">
+                      {formatNumber(selectedPropertyForPanel.soldTokens)}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Available Tokens</p>
+                    <p className="text-lg font-bold text-orange-600">
+                      {formatNumber(selectedPropertyForPanel.availableTokens)}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
+                    <p className="text-lg font-bold text-card-foreground">
+                      {formatCurrency(selectedPropertyForPanel.totalInvestment)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Funding Progress */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-muted-foreground">Funding Progress</span>
+                    <span className="font-semibold text-card-foreground">
+                      {selectedPropertyForPanel.fundingPercentage.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full transition-all ${
+                        selectedPropertyForPanel.fundingPercentage >= 50 ? 'bg-green-600' : 
+                        selectedPropertyForPanel.fundingPercentage >= 25 ? 'bg-yellow-600' : 'bg-blue-600'
+                      }`}
+                      style={{ width: `${Math.min(selectedPropertyForPanel.fundingPercentage, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Organization Info */}
+                {selectedPropertyForPanel.organizationName && (
+                  <div className="p-4 border border-border rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Organization</p>
+                    <p className="text-sm font-semibold text-card-foreground">
+                      {selectedPropertyForPanel.organizationName}
+                    </p>
+                  </div>
+                )}
+
+                {/* Investor Count */}
+                {selectedPropertyForPanel.investorCount !== undefined && (
+                  <div className="p-4 border border-border rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Investors</p>
+                    <p className="text-sm font-semibold text-card-foreground">
+                      {selectedPropertyForPanel.investorCount} {selectedPropertyForPanel.investorCount === 1 ? 'investor' : 'investors'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Ownership Data */}
+                {(() => {
+                  const ownershipData = generateOwnershipData(investmentsData, selectedPropertyForPanel.propertyId);
+                  if (ownershipData.length > 0) {
+                    const ownershipWithPercentages = ownershipData.map(inv => ({
+                      ...inv,
+                      percentage: selectedPropertyForPanel.totalTokens > 0 
+                        ? (inv.tokens / selectedPropertyForPanel.totalTokens) * 100 
+                        : 0
+                    })).sort((a, b) => b.tokens - a.tokens).slice(0, 10);
+
+                    return (
+                      <div>
+                        <h4 className="text-sm font-semibold text-card-foreground mb-4">Top Investors</h4>
+                        <div className="space-y-2">
+                          {ownershipWithPercentages.map((inv, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-card-foreground">{inv.userName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDate(inv.allocationDate)}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-semibold text-card-foreground">
+                                  {formatNumber(inv.tokens)} tokens
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {inv.percentage.toFixed(2)}%
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            </Card>
+          </div>
         </>
       )}
-      {viewLevel === 'PROPERTY' && renderLevel3PropertyDetails()}
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Shield, Eye, EyeOff, LogIn } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
+import { blocksAdminAPI } from '../../services/api';
 
 const AdminLogin = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -27,22 +28,50 @@ const AdminLogin = () => {
       return;
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      // Call the Blocks Admin Login API
+      const response = await blocksAdminAPI.login({
+        email: formData.email,
+        password: formData.password,
+      });
 
-    login({
-      id: 'admin-demo',
-      name: 'Admin User',
-      email: formData.email,
-      role: 'admin',
-    });
+      // Extract admin data from response
+      const adminData = response.data?.data || response.data;
+      
+      if (!adminData || !adminData.id) {
+        throw new Error('Invalid response from server');
+      }
 
-    navigate('/admin');
+      // Login with admin data
+      login({
+        id: adminData.id,
+        userId: adminData.id, // Store as userId for compatibility
+        name: adminData.fullName || 'Admin User',
+        email: adminData.email,
+        fullName: adminData.fullName,
+        role: 'blocks-admin',
+        isActive: adminData.isActive,
+        createdAt: adminData.createdAt,
+      });
+
+      navigate('/admin');
+    } catch (err) {
+      console.error('Login error:', err);
+      const errorMessage = 
+        err.response?.data?.message || 
+        err.response?.data?.error || 
+        err.message || 
+        'Login failed. Please check your credentials.';
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDemoLogin = () => {
     setFormData({
-      email: 'admin@hmrbuilders.com',
-      password: 'admin123',
+      email: 'admin@blocks.com',
+      password: 'Admin@123',
     });
   };
 
@@ -177,8 +206,23 @@ const AdminLogin = () => {
             {/* Demo Creds */}
             <p className="text-xs text-center tracking-wide
                           text-slate-500 dark:text-slate-400">
-              admin@hmrbuilders.com • admin123
+              admin@blocks.com • Admin@123
             </p>
+            
+            {/* Signup Link */}
+            <div className="text-center mt-4">
+              <span className="text-sm text-slate-600 dark:text-slate-400">
+                Don't have an account?{' '}
+              </span>
+              <button
+                onClick={() => navigate('/admin/signup')}
+                className="text-sm font-semibold
+                           text-[hsl(var(--brand-primary))]
+                           hover:underline transition"
+              >
+                Sign up
+              </button>
+            </div>
           </div>
         </div>
 

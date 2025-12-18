@@ -318,6 +318,15 @@ export const orgAdminAPI = {
   getNotifications: (adminId) => api.get(`/org/auth/notifications/${adminId}`), // Get org admin notifications
 };
 
+// Blocks Admin Authentication API
+export const blocksAdminAPI = {
+  // Blocks Admin Authentication
+  signup: (data) => api.post('/blocks-admin/signup', data), // POST /blocks-admin/signup { email, password, fullName }
+  login: (credentials) => api.post('/blocks-admin/login', credentials), // POST /blocks-admin/login { email, password }
+  getMe: (adminId) => api.get('/blocks-admin/me', { headers: { 'x-admin-id': adminId } }), // GET /blocks-admin/me (requires x-admin-id header)
+  getAllAdmins: (adminId) => api.get('/blocks-admin', { headers: { 'x-admin-id': adminId } }), // GET /blocks-admin (requires x-admin-id header)
+};
+
 // Admin API (Updated to match actual backend)
 // Admin API
 export const adminAPI = {
