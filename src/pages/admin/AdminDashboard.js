@@ -48,6 +48,7 @@ import ReportsManagement from './ReportsManagement';
 import KYCManagement from './KYCManagement';
 import NotificationsManagement from './NotificationsManagement';
 import BankTransferRequests from './BankTransferRequests';
+import BankWithdrawalRequests from './BankWithdrawalRequests';
 import Loader from '../../components/Loder';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -57,7 +58,7 @@ const AdminDashboard = () => {
   const location = useLocation();
   const { theme } = useTheme();
   
-  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
+  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'bank-withdrawals', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
   
   // Read initial tab from URL synchronously during render
   // Always use window.location.search for initial render to ensure we get the actual URL on refresh
@@ -1704,6 +1705,8 @@ const AdminDashboard = () => {
         return <UsersManagement initialFilters={tabFilters.users} onFiltersSet={() => setTabFilters({ ...tabFilters, users: undefined })} />;
       case 'bank-transfers':
         return <BankTransferRequests initialFilters={tabFilters['bank-transfers']} onFiltersSet={() => setTabFilters({ ...tabFilters, 'bank-transfers': undefined })} />;
+      case 'bank-withdrawals':
+        return <BankWithdrawalRequests initialFilters={tabFilters['bank-withdrawals']} onFiltersSet={() => setTabFilters({ ...tabFilters, 'bank-withdrawals': undefined })} />;
       case 'transactions':
         return <TransactionsManagement initialFilters={tabFilters.transactions} onFiltersSet={() => setTabFilters({ ...tabFilters, transactions: undefined })} />;
       case 'investments':

@@ -379,6 +379,12 @@ export const adminAPI = {
   getBankTransferProofUrl: (id, expiresIn) => api.get(`/admin/bank-transfers/${id}/proof-url`, { params: { expiresIn } }), // GET /admin/bank-transfers/:id/proof-url
   reviewBankTransfer: (id, data) => api.patch(`/admin/bank-transfers/${id}/review`, data), // PATCH /admin/bank-transfers/:id/review
   
+  // Bank Withdrawals API
+  getBankWithdrawals: (params) => api.get('/admin/bank-withdrawals', { params }), // GET /admin/bank-withdrawals
+  getBankWithdrawal: (id) => api.get(`/admin/bank-withdrawals/${id}`), // GET /admin/bank-withdrawals/:id
+  completeBankWithdrawal: (id, data) => api.patch(`/admin/bank-withdrawals/${id}/complete`, data), // PATCH /admin/bank-withdrawals/:id/complete
+  rejectBankWithdrawal: (id, data) => api.patch(`/admin/bank-withdrawals/${id}/reject`, data), // PATCH /admin/bank-withdrawals/:id/reject
+  
   // Settings
   getBankAccountSettings: () => api.get('/admin/settings/bank-account'), // GET /admin/settings/bank-account
   updateBankAccountSettings: (data) => api.patch('/admin/settings/bank-account', data), // PATCH /admin/settings/bank-account

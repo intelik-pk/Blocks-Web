@@ -17,6 +17,7 @@ import {
   Lock,
   Unlock,
   CreditCard,
+  ArrowDownCircle,
 } from 'lucide-react';
 
 const AdminSidebar = ({ activeTab, setActiveTab }) => {
@@ -31,6 +32,7 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
     { id: 'investments', icon: BarChart3, label: 'Investments' },
     { id: 'users', icon: Users, label: 'Users' },
     { id: 'bank-transfers', icon: CreditCard, label: 'Bank Transfers' },
+    { id: 'bank-withdrawals', icon: ArrowDownCircle, label: 'Bank Withdrawals' },
     { id: 'transactions', icon: Archive, label: 'Transactions' },
     { id: 'tokens', icon: Coins, label: 'Tokens' },
     { id: 'kyc', icon: Shield, label: 'KYC Management' },
