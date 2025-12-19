@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import { adminAPI } from '../../services/api';
+import Loader from '../../components/Loder';
+import { Building2, CreditCard } from 'lucide-react';
 
 const AdminSettings = () => {
+  const queryClient = useQueryClient();
+  
   const [general, setGeneral] = useState({
     appName: 'HMR Dashboard',
     companyName: 'Blocks',
@@ -21,6 +27,46 @@ const AdminSettings = () => {
     sessionMinutes: 60,
     allowRegistration: false,
   });
+
+  // Bank Account Settings
+  const { data: bankAccountData, isLoading: loadingBankAccount } = useQuery(
+    'bank-account-settings',
+    () => adminAPI.getBankAccountSettings(),
+    {
+      retry: 1,
+      onSuccess: (data) => {
+        if (data?.data?.data) {
+          setBankAccount(data.data.data);
+        }
+      },
+    },
+  );
+
+  const [bankAccount, setBankAccount] = useState({
+    accountName: '',
+    accountNumber: '',
+    iban: '',
+    bankName: '',
+    swiftCode: '',
+    branch: '',
+  });
+
+  const updateBankAccountMutation = useMutation(
+    (data) => adminAPI.updateBankAccountSettings(data),
+    {
+      onSuccess: (response) => {
+        queryClient.invalidateQueries('bank-account-settings');
+        alert('Bank account details updated successfully!');
+      },
+      onError: (error) => {
+        alert(`Failed to update: ${error.response?.data?.message || error.message}`);
+      },
+    },
+  );
+
+  const handleSaveBankAccount = () => {
+    updateBankAccountMutation.mutate(bankAccount);
+  };
 
   const handleSave = () => {
     // Persist settings via API in the future
@@ -114,6 +160,91 @@ const AdminSettings = () => {
               onChange={(e) => setTheme({ ...theme, accent: e.target.value })}
             />
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <Card.Title className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5" />
+          Bank Account Details
+        </Card.Title>
+        <p className="text-sm text-muted-foreground mt-1 mb-4">
+          Configure bank account details that users will see when making bank transfer deposits.
+        </p>
+        {loadingBankAccount ? (
+          <div className="flex justify-center py-8">
+            <Loader />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Account Name *
+              </label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg"
+                value={bankAccount.accountName}
+                onChange={(e) => setBankAccount({ ...bankAccount, accountName: e.target.value })}
+                placeholder="Blocks Investment Platform"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Account Number *
+              </label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg font-mono"
+                value={bankAccount.accountNumber}
+                onChange={(e) => setBankAccount({ ...bankAccount, accountNumber: e.target.value })}
+                placeholder="PK12BLOCKS0001234567890"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">IBAN</label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg font-mono"
+                value={bankAccount.iban}
+                onChange={(e) => setBankAccount({ ...bankAccount, iban: e.target.value })}
+                placeholder="PK12BLOCKS0001234567890"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Bank Name *</label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg"
+                value={bankAccount.bankName}
+                onChange={(e) => setBankAccount({ ...bankAccount, bankName: e.target.value })}
+                placeholder="Standard Chartered Bank"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">SWIFT Code</label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg font-mono"
+                value={bankAccount.swiftCode}
+                onChange={(e) => setBankAccount({ ...bankAccount, swiftCode: e.target.value })}
+                placeholder="SCBLPKKA"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Branch</label>
+              <input
+                className="w-full px-3 py-2 border border-input rounded-lg"
+                value={bankAccount.branch}
+                onChange={(e) => setBankAccount({ ...bankAccount, branch: e.target.value })}
+                placeholder="Main Branch, Karachi"
+              />
+            </div>
+          </div>
+        )}
+        <div className="mt-6 flex justify-end">
+          <Button
+            onClick={handleSaveBankAccount}
+            disabled={updateBankAccountMutation.isLoading || loadingBankAccount}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {updateBankAccountMutation.isLoading ? 'Saving...' : 'Save Bank Account Details'}
+          </Button>
         </div>
       </Card>
 

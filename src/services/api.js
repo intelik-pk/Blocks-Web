@@ -372,6 +372,17 @@ export const adminAPI = {
   registerWebPush: (userId, subscription) => api.post(`/api/notifications/register-web-push/${userId}`, { subscription }), // Register web push for Blocks admin
   getNotifications: (userId) => api.get(`/api/notifications/user/${userId}`), // Get user notifications by user ID
   getBlocksAdminNotifications: () => api.get('/admin/notifications'), // Get Blocks admin notifications
+  
+  // Bank Transfer Requests
+  getBankTransfers: (params) => api.get('/admin/bank-transfers', { params }), // GET /admin/bank-transfers
+  getBankTransfer: (id) => api.get(`/admin/bank-transfers/${id}`), // GET /admin/bank-transfers/:id
+  getBankTransferProofUrl: (id, expiresIn) => api.get(`/admin/bank-transfers/${id}/proof-url`, { params: { expiresIn } }), // GET /admin/bank-transfers/:id/proof-url
+  reviewBankTransfer: (id, data) => api.patch(`/admin/bank-transfers/${id}/review`, data), // PATCH /admin/bank-transfers/:id/review
+  
+  // Settings
+  getBankAccountSettings: () => api.get('/admin/settings/bank-account'), // GET /admin/settings/bank-account
+  updateBankAccountSettings: (data) => api.patch('/admin/settings/bank-account', data), // PATCH /admin/settings/bank-account
+  getAllSettings: () => api.get('/admin/settings'), // GET /admin/settings
 };
 
 // Portfolio API (Complete - User End)

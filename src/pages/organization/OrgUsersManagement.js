@@ -731,7 +731,7 @@ const OrgUsersManagement = ({ organizationId }) => {
                       
                       // Debug log to see what we're getting
                       console.log('Investment tokens (OrgUsers):', {
-                        tokens,
+                        tokensFromVariable: tokens,
                         tokensToBuy: investment.tokensToBuy,
                         tokens_bought: investment.tokens_bought,
                         tokens: investment.tokens,

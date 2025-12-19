@@ -242,7 +242,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
                     <div key={index} className="relative group">
                       <img
                         src={url}
-                        alt={`Property image ${index + 1}`}
+                        alt={`Property ${index + 1}`}
                         className="w-full h-48 object-cover rounded-lg border border-border hover:shadow-lg transition-shadow cursor-pointer"
                         onError={(e) => {
                           e.target.style.display = 'none';

@@ -16,6 +16,7 @@ import {
   X,
   Lock,
   Unlock,
+  CreditCard,
 } from 'lucide-react';
 
 const AdminSidebar = ({ activeTab, setActiveTab }) => {
@@ -29,6 +30,7 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
     { id: 'property-requests', icon: Building2, label: 'Property Requests' },
     { id: 'investments', icon: BarChart3, label: 'Investments' },
     { id: 'users', icon: Users, label: 'Users' },
+    { id: 'bank-transfers', icon: CreditCard, label: 'Bank Transfers' },
     { id: 'transactions', icon: Archive, label: 'Transactions' },
     { id: 'tokens', icon: Coins, label: 'Tokens' },
     { id: 'kyc', icon: Shield, label: 'KYC Management' },
