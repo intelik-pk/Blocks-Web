@@ -868,3 +868,5 @@ const BankTransferRequests = ({ initialFilters, onFiltersSet }) => {
 };
 
 export default BankTransferRequests;
+
+
