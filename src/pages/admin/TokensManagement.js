@@ -485,6 +485,12 @@ const TokensManagement = () => {
 
   // Side panel state for property details
   const [selectedPropertyForPanel, setSelectedPropertyForPanel] = useState(null);
+  const [chartTimeRange, setChartTimeRange] = useState('30d'); // '5d', '30d', '90d', 'all'
+  const [hoveredDate, setHoveredDate] = useState(null); // For time travel on hover
+  const [lockedDate, setLockedDate] = useState(null); // For locked date (sticky)
+  
+  // Active date: locked date takes priority, otherwise use hovered date
+  const activeDate = lockedDate || hoveredDate;
   
   // Navigation helpers
   const navigateToProperty = (propertyId) => {
@@ -497,12 +503,18 @@ const TokensManagement = () => {
     const property = individualTokens.find(t => t.id === propertyId);
     if (property) {
       setSelectedPropertyForPanel(property);
+      setHoveredDate(null); // Reset hover when opening new property
+      setLockedDate(null); // Reset lock when opening new property
+      setChartTimeRange('30d'); // Reset to default
     }
   };
   
   // Close property panel
   const closePropertyPanel = () => {
-    setSelectedPropertyForPanel(null);
+      setSelectedPropertyForPanel(null);
+      setHoveredDate(null);
+      setLockedDate(null);
+      setChartTimeRange('30d'); // Reset to default
   };
 
   const navigateToOrg = () => {
@@ -2382,46 +2394,400 @@ const TokensManagement = () => {
                       {formatNumber(selectedPropertyForPanel.totalTokens)}
                     </p>
                   </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
-                    <p className="text-lg font-bold text-green-600">
-                      {formatNumber(selectedPropertyForPanel.soldTokens)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Available Tokens</p>
-                    <p className="text-lg font-bold text-orange-600">
-                      {formatNumber(selectedPropertyForPanel.availableTokens)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
-                    <p className="text-lg font-bold text-card-foreground">
-                      {formatCurrency(selectedPropertyForPanel.totalInvestment)}
-                    </p>
-                  </div>
+                  {(() => {
+                    // Calculate metrics as of activeDate (locked or hovered) or current
+                    const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                    
+                    let tokensSoldAsOf = selectedPropertyForPanel.soldTokens || 0;
+                    let availableTokensAsOf = selectedPropertyForPanel.availableTokens || 0;
+                    let totalInvestmentAsOf = selectedPropertyForPanel.totalInvestment || 0;
+                    
+                    if (activeDate && investmentsData?.data) {
+                      const investments = Array.isArray(investmentsData.data)
+                        ? investmentsData.data
+                        : investmentsData.data?.data || investmentsData.data || [];
+                      
+                      const filteredInvestments = investments.filter(inv => {
+                        const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                        const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                        const activeDateObj = new Date(activeDate);
+                        return (invPropertyId === propertyId || invPropertyId === selectedPropertyForPanel.displayCode) &&
+                               (inv.status === 'confirmed' || inv.status === 'active') &&
+                               invDate <= activeDateObj;
+                      });
+                      
+                      tokensSoldAsOf = filteredInvestments.reduce((sum, inv) => 
+                        sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                      );
+                      totalInvestmentAsOf = filteredInvestments.reduce((sum, inv) => 
+                        sum + parseFloat(inv.amountUSDT || inv.amount || 0), 0
+                      );
+                      availableTokensAsOf = (selectedPropertyForPanel.totalTokens || 0) - tokensSoldAsOf;
+                    }
+                    
+                    return (
+                      <>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
+                          <p className="text-lg font-bold text-green-600">
+                            {formatNumber(tokensSoldAsOf)}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Available Tokens</p>
+                          <p className="text-lg font-bold text-orange-600">
+                            {formatNumber(availableTokensAsOf)}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
+                          <p className="text-lg font-bold text-card-foreground">
+                            {formatCurrency(totalInvestmentAsOf)}
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
+                {/* Cumulative Tokens Sold Chart */}
+                {(() => {
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments for this property
+                  const propInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    return (invPropertyId === propertyId || invPropertyId === selectedPropertyForPanel.displayCode) &&
+                           (inv.status === 'confirmed' || inv.status === 'active');
+                  });
+                  
+                  if (propInvestments.length === 0) return null;
+                  
+                  // Calculate date range
+                  const now = new Date();
+                  let startDate = new Date();
+                  switch (chartTimeRange) {
+                    case '5d':
+                      startDate = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+                      break;
+                    case '30d':
+                      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                      break;
+                    case '90d':
+                      startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                      break;
+                    case 'all':
+                      // Use earliest investment date
+                      const earliestDate = new Date(Math.min(...propInvestments.map(inv => 
+                        new Date(inv.createdAt || inv.created_at || inv.date)
+                      )));
+                      startDate = earliestDate;
+                      break;
+                  }
+                  
+                  // Group investments by date and calculate cumulative tokens
+                  const investmentsByDate = new Map();
+                  propInvestments.forEach(inv => {
+                    const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                    if (invDate >= startDate) {
+                      const dateKey = invDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                      if (!investmentsByDate.has(dateKey)) {
+                        investmentsByDate.set(dateKey, []);
+                      }
+                      investmentsByDate.get(dateKey).push(inv);
+                    }
+                  });
+                  
+                  // Create sorted date array
+                  const sortedDates = Array.from(investmentsByDate.keys()).sort();
+                  
+                  // Calculate cumulative data
+                  let cumulativeTokens = 0;
+                  const chartData = sortedDates.map(date => {
+                    const dayInvestments = investmentsByDate.get(date);
+                    const dayTokens = dayInvestments.reduce((sum, inv) => 
+                      sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                    );
+                    cumulativeTokens += dayTokens;
+                    
+                    return {
+                      date,
+                      dateFormatted: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                      tokens: cumulativeTokens,
+                      dayTokens: dayTokens
+                    };
+                  });
+                  
+                  // If no data in range, return null
+                  if (chartData.length === 0) return null;
+                  
+                  return (
+                    <Card className="p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-semibold text-card-foreground">Cumulative Tokens Sold</h4>
+                        <div className="flex items-center gap-2">
+                          {['5d', '30d', '90d', 'all'].map(range => (
+                            <button
+                              key={range}
+                              onClick={() => setChartTimeRange(range)}
+                              className={`px-2 py-1 text-xs rounded ${
+                                chartTimeRange === range
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                              }`}
+                            >
+                              {range === 'all' ? 'All' : range}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={chartData}
+                            onMouseMove={(e) => {
+                              if (e && e.activePayload && e.activePayload[0]) {
+                                const data = e.activePayload[0].payload;
+                                // Only update hover if no date is locked
+                                if (!lockedDate) {
+                                  setHoveredDate(data.date);
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              // Only clear hover if no date is locked
+                              if (!lockedDate) {
+                                setHoveredDate(null);
+                              }
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.3} />
+                            <XAxis 
+                              dataKey="dateFormatted" 
+                              stroke="#6b7280"
+                              angle={-45}
+                              textAnchor="end"
+                              height={60}
+                            />
+                            <YAxis stroke="#6b7280" />
+                            <Tooltip
+                              formatter={(value) => formatNumber(value)}
+                              labelFormatter={(label) => {
+                                const data = chartData.find(d => d.dateFormatted === label);
+                                return data ? new Date(data.date).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: 'numeric' 
+                                }) : label;
+                              }}
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="tokens" 
+                              stroke="#3b82f6" 
+                              strokeWidth={2}
+                              dot={(props) => {
+                                const { cx, cy, payload } = props;
+                                const isLocked = lockedDate === payload.date;
+                                return (
+                                  <g>
+                                    <circle
+                                      cx={cx}
+                                      cy={cy}
+                                      r={isLocked ? 6 : 4}
+                                      fill={isLocked ? "#10b981" : "#3b82f6"}
+                                      stroke={isLocked ? "#059669" : "#2563eb"}
+                                      strokeWidth={isLocked ? 2 : 1}
+                                    />
+                                  </g>
+                                );
+                              }}
+                              activeDot={(props) => {
+                                const { cx, cy, payload } = props;
+                                const isLocked = lockedDate === payload.date;
+                                return (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={8}
+                                    fill={isLocked ? "#10b981" : "#3b82f6"}
+                                    stroke={isLocked ? "#059669" : "#2563eb"}
+                                    strokeWidth={2}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const clickedDate = payload.date;
+                                      // Toggle lock: if clicking same date, unlock; otherwise lock new date
+                                      if (lockedDate === clickedDate) {
+                                        setLockedDate(null);
+                                        setHoveredDate(null);
+                                      } else {
+                                        setLockedDate(clickedDate);
+                                        setHoveredDate(clickedDate);
+                                      }
+                                    }}
+                                  />
+                                );
+                              }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {activeDate && (
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(activeDate).toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              year: 'numeric' 
+                            })}
+                          </p>
+                          {lockedDate && (
+                            <button
+                              onClick={() => {
+                                setLockedDate(null);
+                                setHoveredDate(null);
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-700 underline"
+                            >
+                              Reset to Current
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })()}
+
                 {/* Funding Remaining - Separate section for emphasis */}
-                <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
-                      <p className="text-xl font-bold text-orange-600">
-                        {formatCurrency(Math.max(0, (selectedPropertyForPanel.totalTokenValue || 0) - (selectedPropertyForPanel.totalInvestment || 0)))}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {formatNumber(selectedPropertyForPanel.availableTokens || 0)} tokens remaining
-                      </p>
+                {(() => {
+                  // Calculate metrics as of activeDate (locked or hovered) or current
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) {
+                    return (
+                      <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
+                            <p className="text-xl font-bold text-orange-600">
+                              {formatCurrency(Math.max(0, (selectedPropertyForPanel.totalTokenValue || 0) - (selectedPropertyForPanel.totalInvestment || 0)))}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {formatNumber(selectedPropertyForPanel.availableTokens || 0)} tokens remaining
+                            </p>
+                          </div>
+                          <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to hoveredDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  const tokensSoldAsOf = filteredInvestments.reduce((sum, inv) => 
+                    sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                  );
+                  const investmentRaisedAsOf = filteredInvestments.reduce((sum, inv) => 
+                    sum + parseFloat(inv.amountUSDT || inv.amount || 0), 0
+                  );
+                  const availableTokensAsOf = (selectedPropertyForPanel.totalTokens || 0) - tokensSoldAsOf;
+                  const fundingRemainingAsOf = Math.max(0, (selectedPropertyForPanel.totalTokenValue || 0) - investmentRaisedAsOf);
+                  
+                  return (
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
+                          <p className="text-xl font-bold text-orange-600">
+                            {formatCurrency(fundingRemainingAsOf)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatNumber(availableTokensAsOf)} tokens remaining
+                          </p>
+                        </div>
+                        <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
+                      </div>
                     </div>
-                    <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Investor Concentration (Top 1 share) */}
                 {(() => {
                   const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
-                  const ownershipData = generateOwnershipData(investmentsData, propertyId);
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to hoveredDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  // Generate ownership data from filtered investments
+                  const ownershipMap = new Map();
+                  filteredInvestments.forEach(inv => {
+                    const userId = inv.userId || inv.user_id || inv.user?.id;
+                    const userName = inv.user?.name || inv.user?.email || `User ${userId?.slice(0, 8)}` || 'Unknown';
+                    const tokens = parseFloat(inv.tokensPurchased || 0);
+                    
+                    if (ownershipMap.has(userId)) {
+                      ownershipMap.get(userId).tokens += tokens;
+                    } else {
+                      ownershipMap.set(userId, {
+                        userId,
+                        userName,
+                        tokens,
+                        allocationDate: inv.createdAt || inv.created_at || new Date().toISOString()
+                      });
+                    }
+                  });
+                  
+                  const ownershipData = Array.from(ownershipMap.values());
                   
                   if (ownershipData.length === 0) return null;
                   
@@ -2567,12 +2933,63 @@ const TokensManagement = () => {
 
                 {/* Ownership Data */}
                 {(() => {
-                  const ownershipData = generateOwnershipData(investmentsData, selectedPropertyForPanel.propertyId);
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to activeDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  // Generate ownership data from filtered investments
+                  const ownershipMap = new Map();
+                  filteredInvestments.forEach(inv => {
+                    const userId = inv.userId || inv.user_id || inv.user?.id;
+                    const userName = inv.user?.name || inv.user?.email || `User ${userId?.slice(0, 8)}` || 'Unknown';
+                    const tokens = parseFloat(inv.tokensPurchased || inv.tokens || 0);
+                    
+                    if (ownershipMap.has(userId)) {
+                      ownershipMap.get(userId).tokens += tokens;
+                    } else {
+                      ownershipMap.set(userId, {
+                        userId,
+                        userName,
+                        tokens,
+                        allocationDate: inv.createdAt || inv.created_at || new Date().toISOString()
+                      });
+                    }
+                  });
+                  
+                  const ownershipData = Array.from(ownershipMap.values());
+                  
                   if (ownershipData.length > 0) {
+                    const totalSoldTokensAsOf = ownershipData.reduce((sum, holder) => sum + holder.tokens, 0);
                     const ownershipWithPercentages = ownershipData.map(inv => ({
                       ...inv,
                       percentage: selectedPropertyForPanel.totalTokens > 0 
                         ? (inv.tokens / selectedPropertyForPanel.totalTokens) * 100 
+                        : 0,
+                      percentageOfSold: totalSoldTokensAsOf > 0
+                        ? (inv.tokens / totalSoldTokensAsOf) * 100
                         : 0
                     })).sort((a, b) => b.tokens - a.tokens).slice(0, 10);
 
@@ -2593,7 +3010,7 @@ const TokensManagement = () => {
                                   {formatNumber(inv.tokens)} tokens
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {inv.percentage.toFixed(2)}%
+                                  {inv.percentageOfSold ? `${inv.percentageOfSold.toFixed(2)}% of sold` : `${inv.percentage.toFixed(2)}%`}
                                 </p>
                               </div>
                             </div>
