@@ -33,7 +33,7 @@ This platform enables:
 
 ### Prerequisites
 
-- Node.js 18.0.0 or higher
+- Node.js 18.0.0.0 or higher
 - npm or yarn package manager
 
 ### Installation

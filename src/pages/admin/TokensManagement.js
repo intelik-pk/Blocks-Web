@@ -24,7 +24,8 @@ import {
   ArrowLeft,
   ChevronRight,
   X,
-  Filter
+  Filter,
+  AlertCircle
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Card from '../../components/ui/Card';
@@ -375,6 +376,32 @@ const TokensManagement = () => {
     });
   };
 
+  // Format relative time (e.g., "2 days ago", "3 hours ago")
+  const formatRelativeTime = (date) => {
+    if (!date) return 'Never';
+    const now = new Date();
+    const past = new Date(date);
+    const diffMs = now - past;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+    if (diffDays < 30) {
+      const weeks = Math.floor(diffDays / 7);
+      return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
+    }
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+    }
+    const years = Math.floor(diffDays / 365);
+    return `${years} ${years === 1 ? 'year' : 'years'} ago`;
+  };
+
   const getStatusBadge = (status) => {
     const statusMap = {
       'draft': { variant: 'warning', label: 'Draft' },
@@ -458,6 +485,12 @@ const TokensManagement = () => {
 
   // Side panel state for property details
   const [selectedPropertyForPanel, setSelectedPropertyForPanel] = useState(null);
+  const [chartTimeRange, setChartTimeRange] = useState('30d'); // '5d', '30d', '90d', 'all'
+  const [hoveredDate, setHoveredDate] = useState(null); // For time travel on hover
+  const [lockedDate, setLockedDate] = useState(null); // For locked date (sticky)
+  
+  // Active date: locked date takes priority, otherwise use hovered date
+  const activeDate = lockedDate || hoveredDate;
   
   // Navigation helpers
   const navigateToProperty = (propertyId) => {
@@ -470,12 +503,18 @@ const TokensManagement = () => {
     const property = individualTokens.find(t => t.id === propertyId);
     if (property) {
       setSelectedPropertyForPanel(property);
+      setHoveredDate(null); // Reset hover when opening new property
+      setLockedDate(null); // Reset lock when opening new property
+      setChartTimeRange('30d'); // Reset to default
     }
   };
   
   // Close property panel
   const closePropertyPanel = () => {
-    setSelectedPropertyForPanel(null);
+      setSelectedPropertyForPanel(null);
+      setHoveredDate(null);
+      setLockedDate(null);
+      setChartTimeRange('30d'); // Reset to default
   };
 
   const navigateToOrg = () => {
@@ -534,6 +573,131 @@ const TokensManagement = () => {
     }, 0);
     const avgTokenPrice = totalTokensIssued > 0 ? weightedPriceSum / totalTokensIssued : 0;
 
+    // Calculate Funding Remaining: Total Target Value - Total Investment
+    let totalTargetValue = 0;
+    if (propertiesData?.data && individualTokens.length > 0) {
+      totalTargetValue = individualTokens.reduce((sum, token) => {
+        return sum + (token.totalTokenValue || 0);
+      }, 0);
+    }
+    
+    const totalInvestmentRaised = filteredAndSortedTokens.reduce((sum, t) => sum + t.totalInvestment, 0);
+    const fundingRemaining = Math.max(0, totalTargetValue - totalInvestmentRaised);
+
+    // Calculate Investors (Unique) and New Investors (7d)
+    let totalInvestors = 0;
+    let newInvestors7d = 0;
+    
+    // Calculate Recent Pace (5d): Tokens sold and Investment raised in last 5 days
+    let tokensSold5d = 0;
+    let investmentRaised5d = 0;
+    
+    if (investmentsData?.data) {
+      const investments = Array.isArray(investmentsData.data)
+        ? investmentsData.data
+        : investmentsData.data?.data || investmentsData.data || [];
+
+      // Filter confirmed/active investments
+      const confirmedInvestments = investments.filter(inv => 
+        inv.status === 'confirmed' || inv.status === 'active'
+      );
+
+      // Calculate 5d pace
+      const now = new Date();
+      const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+      
+      const investments5d = confirmedInvestments.filter(inv => {
+        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+        return createdAt >= fiveDaysAgo;
+      });
+
+      tokensSold5d = investments5d.reduce((sum, inv) => {
+        return sum + parseFloat(inv.tokensPurchased || inv.tokens || 0);
+      }, 0);
+
+      investmentRaised5d = investments5d.reduce((sum, inv) => {
+        return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
+      }, 0);
+
+      // Get unique investors and their first investment date
+      const investorMap = new Map();
+      confirmedInvestments.forEach(inv => {
+        const userId = inv.userId || inv.user_id || inv.user?.id;
+        if (!userId) return;
+
+        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+        
+        if (!investorMap.has(userId)) {
+          investorMap.set(userId, createdAt);
+        } else {
+          // Keep the earliest date
+          const existingDate = investorMap.get(userId);
+          if (createdAt < existingDate) {
+            investorMap.set(userId, createdAt);
+          }
+        }
+      });
+
+      totalInvestors = investorMap.size;
+
+      // Calculate new investors in last 7 days
+      newInvestors7d = Array.from(investorMap.values()).filter(firstDate => 
+        firstDate >= fiveDaysAgo
+      ).length;
+    }
+
+    // Calculate Last Purchase Date (portfolio level)
+    let lastPurchaseDate = null;
+    if (investmentsData?.data) {
+      const investments = Array.isArray(investmentsData.data)
+        ? investmentsData.data
+        : investmentsData.data?.data || investmentsData.data || [];
+      
+      const confirmedInvestments = investments.filter(inv => 
+        inv.status === 'confirmed' || inv.status === 'active'
+      );
+      
+      if (confirmedInvestments.length > 0) {
+        const purchaseDates = confirmedInvestments.map(inv => 
+          new Date(inv.createdAt || inv.created_at || inv.date)
+        );
+        lastPurchaseDate = new Date(Math.max(...purchaseDates));
+      }
+    }
+
+    // Calculate Stagnant Properties (no sales in last 30 days)
+    let stagnantPropertiesCount = 0;
+    if (investmentsData?.data && individualTokens.length > 0) {
+      const investments = Array.isArray(investmentsData.data)
+        ? investmentsData.data
+        : investmentsData.data?.data || investmentsData.data || [];
+      
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      
+      const confirmedInvestments = investments.filter(inv => 
+        inv.status === 'confirmed' || inv.status === 'active'
+      );
+      
+      // Get properties with investments in last 30 days
+      const activePropertyIds = new Set();
+      confirmedInvestments.forEach(inv => {
+        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+        if (createdAt >= thirtyDaysAgo) {
+          const propertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+          if (propertyId) {
+            activePropertyIds.add(propertyId);
+          }
+        }
+      });
+      
+      // Count properties that are NOT in the active set
+      stagnantPropertiesCount = individualTokens.filter(token => {
+        const tokenPropertyId = token.propertyId || token.id || token.displayCode;
+        return !activePropertyIds.has(tokenPropertyId);
+      }).length;
+    }
+
     // Portfolio supply data for donut chart
     const portfolioSupplyData = [
       { name: 'Sold', value: totalTokensSold, color: '#10b981' },
@@ -550,9 +714,17 @@ const TokensManagement = () => {
                 <Building2 className="w-6 h-6" />
                 Token Portfolio Overview
           </h2>
-              <p className="text-muted-foreground mt-1">
-                Aggregate view of all organization tokens
-          </p>
+              <div className="flex items-center gap-3 mt-1">
+                <p className="text-muted-foreground">
+                  Aggregate view of all organization tokens
+                </p>
+                {lastPurchaseDate && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Last purchase: {formatRelativeTime(lastPurchaseDate)}
+                  </span>
+                )}
+              </div>
         </div>
             <div className="flex items-center gap-2">
               <div className="h-64 w-64">
@@ -579,7 +751,7 @@ const TokensManagement = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-xs text-muted-foreground mb-1">Total Organizations</p>
               <p className="text-2xl font-bold text-card-foreground">{filteredAndSortedTokens.length}</p>
@@ -589,6 +761,13 @@ const TokensManagement = () => {
               <p className="text-2xl font-bold text-card-foreground">
                 {filteredAndSortedTokens.reduce((sum, org) => sum + org.propertyCount, 0)}
               </p>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-xs text-muted-foreground mb-1">Stagnant Properties</p>
+              <p className="text-2xl font-bold text-orange-600">
+                {stagnantPropertiesCount}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">No sales (30d)</p>
             </div>
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-xs text-muted-foreground mb-1">Total Tokens</p>
@@ -606,7 +785,7 @@ const TokensManagement = () => {
         </Card>
 
         {/* Organization KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -654,12 +833,56 @@ const TokensManagement = () => {
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
+                <p className="text-xs text-muted-foreground mb-1">5d Pace</p>
+                <p className="text-sm font-semibold text-card-foreground">
+                  {formatNumber(tokensSold5d)} tokens
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatCurrency(investmentRaised5d)}
+                </p>
+              </div>
+              <Clock className="w-8 h-8 text-blue-600 opacity-50" />
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
                 <p className="text-xs text-muted-foreground mb-1">Avg Token Price</p>
                 <p className="text-lg font-bold text-card-foreground">
                   {formatCurrency(avgTokenPrice)}
                 </p>
               </div>
               <DollarSign className="w-8 h-8 text-blue-600 opacity-50" />
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
+                <p className="text-lg font-bold text-orange-600">
+                  {formatCurrency(fundingRemaining)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatNumber(totalTokensIssued - totalTokensSold)} tokens remaining
+                </p>
+              </div>
+              <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Investors</p>
+                <p className="text-lg font-bold text-card-foreground">
+                  {formatNumber(totalInvestors)}
+                </p>
+                {newInvestors7d > 0 && (
+                  <p className="text-xs text-green-600 mt-1">
+                    +{newInvestors7d} in last 7d
+                  </p>
+                )}
+              </div>
+              <Users className="w-8 h-8 text-blue-600 opacity-50" />
             </div>
           </Card>
       </div>
@@ -987,6 +1210,147 @@ const TokensManagement = () => {
                       </div>
                     </td>
                   </tr>
+                  {/* Organization Funding Remaining & 5d Pace Row (shown when expanded) */}
+                  {isExpanded && (() => {
+                    // Calculate 5d pace for this organization
+                    let orgTokensSold5d = 0;
+                    let orgInvestmentRaised5d = 0;
+                    let orgStagnantPropertiesCount = 0;
+                    
+                    if (investmentsData?.data) {
+                      const investments = Array.isArray(investmentsData.data)
+                        ? investmentsData.data
+                        : investmentsData.data?.data || investmentsData.data || [];
+                      
+                      const now = new Date();
+                      const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+                      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                      
+                      // Get property IDs for this org
+                      const orgPropertyIds = orgProps.map(prop => prop.id || prop.displayCode);
+                      
+                      const orgInvestments5d = investments.filter(inv => {
+                        const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+                        return orgPropertyIds.includes(invPropertyId) &&
+                               (inv.status === 'confirmed' || inv.status === 'active') &&
+                               createdAt >= fiveDaysAgo;
+                      });
+                      
+                      orgTokensSold5d = orgInvestments5d.reduce((sum, inv) => {
+                        return sum + parseFloat(inv.tokensPurchased || inv.tokens || 0);
+                      }, 0);
+                      
+                      orgInvestmentRaised5d = orgInvestments5d.reduce((sum, inv) => {
+                        return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
+                      }, 0);
+                      
+                      // Calculate stagnant properties (no sales in last 30 days)
+                      const confirmedInvestments = investments.filter(inv => 
+                        inv.status === 'confirmed' || inv.status === 'active'
+                      );
+                      
+                      const activeOrgPropertyIds = new Set();
+                      confirmedInvestments.forEach(inv => {
+                        const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+                        if (orgPropertyIds.includes(invPropertyId) && createdAt >= thirtyDaysAgo) {
+                          activeOrgPropertyIds.add(invPropertyId);
+                        }
+                      });
+                      
+                      orgStagnantPropertiesCount = orgProps.filter(prop => {
+                        const propId = prop.id || prop.displayCode;
+                        return !activeOrgPropertyIds.has(propId);
+                      }).length;
+                    }
+                    
+                    return (
+                      <tr className="bg-muted/20">
+                        <td colSpan="7" className="px-6 py-3">
+                          <div className="flex items-center justify-between flex-wrap gap-4">
+                            <div className="flex items-center gap-4">
+                              <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                                <div className="flex items-center gap-2">
+                                  <TrendingDown className="w-5 h-5 text-orange-600" />
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">Organization Funding Remaining</p>
+                                    <p className="text-lg font-bold text-orange-600">
+                                      {formatCurrency(Math.max(0, orgProps.reduce((sum, prop) => sum + (prop.totalTokenValue || 0), 0) - org.totalInvestment))}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {formatNumber(orgProps.reduce((sum, prop) => sum + (prop.availableTokens || 0), 0))} tokens remaining
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-5 h-5 text-blue-600" />
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">5d Pace</p>
+                                    <p className="text-sm font-bold text-blue-600">
+                                      {formatNumber(orgTokensSold5d)} tokens
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {formatCurrency(orgInvestmentRaised5d)}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Organization Stagnant Properties */}
+                              {orgStagnantPropertiesCount > 0 && (
+                                <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                                  <div className="flex items-center gap-2">
+                                    <AlertCircle className="w-5 h-5 text-red-600" />
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Stagnant Properties</p>
+                                      <p className="text-sm font-bold text-red-600">
+                                        {orgStagnantPropertiesCount} properties
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        No sales in last 30d
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {/* Organization Last Purchase */}
+                              {(() => {
+                                let orgLastPurchaseDate = null;
+                                if (investmentsData?.data) {
+                                  const investments = Array.isArray(investmentsData.data)
+                                    ? investmentsData.data
+                                    : investmentsData.data?.data || investmentsData.data || [];
+                                  
+                                  const orgPropertyIds = orgProps.map(prop => prop.id || prop.displayCode);
+                                  const orgInvestments = investments.filter(inv => {
+                                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                                    return orgPropertyIds.includes(invPropertyId) &&
+                                           (inv.status === 'confirmed' || inv.status === 'active');
+                                  });
+                                  
+                                  if (orgInvestments.length > 0) {
+                                    const purchaseDates = orgInvestments.map(inv => 
+                                      new Date(inv.createdAt || inv.created_at || inv.date)
+                                    );
+                                    orgLastPurchaseDate = new Date(Math.max(...purchaseDates));
+                                  }
+                                }
+                                
+                                return orgLastPurchaseDate ? (
+                                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    Last purchase: {formatRelativeTime(orgLastPurchaseDate)}
+                                  </div>
+                                ) : null;
+                              })()}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                         
                         {/* Properties Rows (collapsible) */}
                         {isExpanded && orgProps.map((prop, index) => (
@@ -1205,6 +1569,80 @@ const TokensManagement = () => {
                   style={{ width: `${Math.min(token.fundingPercentage, 100)}%` }}
                 ></div>
               </div>
+              {/* 5d Pace for Property */}
+              {(() => {
+                let propTokensSold5d = 0;
+                let propInvestmentRaised5d = 0;
+                
+                if (investmentsData?.data) {
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  const now = new Date();
+                  const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+                  const propertyId = token.id || token.propertyId;
+                  
+                  const propInvestments5d = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+                    return (invPropertyId === propertyId) &&
+                           (inv.status === 'confirmed' || inv.status === 'active') &&
+                           createdAt >= fiveDaysAgo;
+                  });
+                  
+                  propTokensSold5d = propInvestments5d.reduce((sum, inv) => {
+                    return sum + parseFloat(inv.tokensPurchased || inv.tokens || 0);
+                  }, 0);
+                  
+                  propInvestmentRaised5d = propInvestments5d.reduce((sum, inv) => {
+                    return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
+                  }, 0);
+                }
+                
+                const propAvailableTokens = token.availableTokens || 0;
+                const propTokensPerDay = propTokensSold5d > 0 ? propTokensSold5d / 5 : 0;
+                let propSellOutETA = null;
+                if (propAvailableTokens <= 0) {
+                  propSellOutETA = 'Sold Out';
+                } else if (propTokensPerDay > 0) {
+                  const daysToSellOut = Math.ceil(propAvailableTokens / propTokensPerDay);
+                  propSellOutETA = `~${daysToSellOut} days`;
+                }
+                
+                return (
+                  <>
+                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-blue-600" />
+                          <div>
+                            <p className="text-xs text-muted-foreground">5d Pace</p>
+                            <p className="text-sm font-semibold text-blue-600">
+                              {formatNumber(propTokensSold5d)} tokens • {formatCurrency(propInvestmentRaised5d)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {propSellOutETA && (
+                      <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <TrendingDown className="w-4 h-4 text-orange-600" />
+                            <div>
+                              <p className="text-xs text-muted-foreground">Sell-out ETA</p>
+                              <p className="text-sm font-semibold text-orange-600">
+                                {propSellOutETA}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </Card>
         ) : (
@@ -1238,7 +1676,7 @@ const TokensManagement = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-muted-foreground mb-1">Current Price</p>
                 <p className="text-2xl font-bold text-blue-600">{formatCurrency(token.pricePerToken)}</p>
@@ -1253,6 +1691,15 @@ const TokensManagement = () => {
                 <p className="text-sm text-muted-foreground mb-1">Total Investment</p>
                 <p className="text-xl font-semibold text-card-foreground">
                   {formatCurrency(token.totalInvestment)}
+                </p>
+              </div>
+              <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                <p className="text-sm text-muted-foreground mb-1">Funding Remaining</p>
+                <p className="text-xl font-bold text-orange-600">
+                  {formatCurrency(Math.max(0, (token.totalTokenValue || 0) - (token.totalInvestment || 0)))}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatNumber(token.availableTokens || 0)} tokens remaining
                 </p>
               </div>
             </div>
@@ -1529,7 +1976,7 @@ const TokensManagement = () => {
             <div>
               <h2 className="text-2xl font-bold text-card-foreground mb-2">{token.tokenName}</h2>
               <p className="text-muted-foreground mb-4">{token.propertyName}</p>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 {getStatusBadge(token.status)}
                 <div>
                   <p className="text-xs text-muted-foreground">Token Price</p>
@@ -1539,6 +1986,38 @@ const TokensManagement = () => {
                   <p className="text-xs text-muted-foreground">Last Updated</p>
                   <p className="text-sm text-card-foreground">{formatDate(new Date().toISOString())}</p>
                 </div>
+                {(() => {
+                  let propLastPurchaseDate = null;
+                  if (investmentsData?.data) {
+                    const investments = Array.isArray(investmentsData.data)
+                      ? investmentsData.data
+                      : investmentsData.data?.data || investmentsData.data || [];
+                    
+                    const propertyId = token.propertyId || token.id;
+                    const propInvestments = investments.filter(inv => {
+                      const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                      return (invPropertyId === propertyId || invPropertyId === token.displayCode) &&
+                             (inv.status === 'confirmed' || inv.status === 'active');
+                    });
+                    
+                    if (propInvestments.length > 0) {
+                      const purchaseDates = propInvestments.map(inv => 
+                        new Date(inv.createdAt || inv.created_at || inv.date)
+                      );
+                      propLastPurchaseDate = new Date(Math.max(...purchaseDates));
+                    }
+                  }
+                  
+                  return propLastPurchaseDate ? (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Last Purchase</p>
+                      <p className="text-sm text-card-foreground flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {formatRelativeTime(propLastPurchaseDate)}
+                      </p>
+                    </div>
+                  ) : null;
+                })()}
               </div>
             </div>
             <Button variant="outline" onClick={() => navigateBackToProperties()}>
@@ -1546,6 +2025,34 @@ const TokensManagement = () => {
               Back to Properties
             </Button>
           </div>
+          
+          {/* Investor Concentration (Top 1 share) - Quick Summary */}
+          {ownershipData.length > 0 && (() => {
+            const sortedOwnership = [...ownershipWithPercentages].sort((a, b) => b.tokens - a.tokens);
+            const top1Holder = sortedOwnership[0];
+            // Calculate total sold tokens from actual ownership data (not property field)
+            const totalSoldTokensFromData = ownershipData.reduce((sum, holder) => sum + holder.tokens, 0);
+            const top1SharePercentage = totalSoldTokensFromData > 0 
+              ? (top1Holder.tokens / totalSoldTokensFromData) * 100 
+              : 0;
+            
+            return (
+              <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Top Share</p>
+                    <p className="text-xl font-bold text-purple-600">
+                      {top1SharePercentage.toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Top buyer holds {formatNumber(top1Holder.tokens)} tokens ({top1SharePercentage.toFixed(1)}% of sold)
+                    </p>
+                  </div>
+                  <Users className="w-8 h-8 text-purple-600 opacity-50" />
+                </div>
+              </div>
+            );
+          })()}
         </Card>
 
         {/* Reuse existing token details sections from renderTokenDetails */}
@@ -1814,9 +2321,40 @@ const TokensManagement = () => {
               <div className="flex items-center justify-between p-6 border-b border-border">
                 <div>
                   <h3 className="text-xl font-bold text-card-foreground">{selectedPropertyForPanel.propertyName}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {selectedPropertyForPanel.displayCode || selectedPropertyForPanel.id}
-                  </p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-sm text-muted-foreground">
+                      {selectedPropertyForPanel.displayCode || selectedPropertyForPanel.id}
+                    </p>
+                    {(() => {
+                      let propLastPurchaseDate = null;
+                      if (investmentsData?.data) {
+                        const investments = Array.isArray(investmentsData.data)
+                          ? investmentsData.data
+                          : investmentsData.data?.data || investmentsData.data || [];
+                        
+                        const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                        const propInvestments = investments.filter(inv => {
+                          const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                          return (invPropertyId === propertyId || invPropertyId === selectedPropertyForPanel.displayCode) &&
+                                 (inv.status === 'confirmed' || inv.status === 'active');
+                        });
+                        
+                        if (propInvestments.length > 0) {
+                          const purchaseDates = propInvestments.map(inv => 
+                            new Date(inv.createdAt || inv.created_at || inv.date)
+                          );
+                          propLastPurchaseDate = new Date(Math.max(...purchaseDates));
+                        }
+                      }
+                      
+                      return propLastPurchaseDate ? (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Last purchase: {formatRelativeTime(propLastPurchaseDate)}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
                 <Button
                   variant="outline"
@@ -1856,25 +2394,429 @@ const TokensManagement = () => {
                       {formatNumber(selectedPropertyForPanel.totalTokens)}
                     </p>
                   </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
-                    <p className="text-lg font-bold text-green-600">
-                      {formatNumber(selectedPropertyForPanel.soldTokens)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Available Tokens</p>
-                    <p className="text-lg font-bold text-orange-600">
-                      {formatNumber(selectedPropertyForPanel.availableTokens)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
-                    <p className="text-lg font-bold text-card-foreground">
-                      {formatCurrency(selectedPropertyForPanel.totalInvestment)}
-                    </p>
-                  </div>
+                  {(() => {
+                    // Calculate metrics as of activeDate (locked or hovered) or current
+                    const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                    
+                    let tokensSoldAsOf = selectedPropertyForPanel.soldTokens || 0;
+                    let availableTokensAsOf = selectedPropertyForPanel.availableTokens || 0;
+                    let totalInvestmentAsOf = selectedPropertyForPanel.totalInvestment || 0;
+                    
+                    if (activeDate && investmentsData?.data) {
+                      const investments = Array.isArray(investmentsData.data)
+                        ? investmentsData.data
+                        : investmentsData.data?.data || investmentsData.data || [];
+                      
+                      const filteredInvestments = investments.filter(inv => {
+                        const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                        const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                        const activeDateObj = new Date(activeDate);
+                        return (invPropertyId === propertyId || invPropertyId === selectedPropertyForPanel.displayCode) &&
+                               (inv.status === 'confirmed' || inv.status === 'active') &&
+                               invDate <= activeDateObj;
+                      });
+                      
+                      tokensSoldAsOf = filteredInvestments.reduce((sum, inv) => 
+                        sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                      );
+                      totalInvestmentAsOf = filteredInvestments.reduce((sum, inv) => 
+                        sum + parseFloat(inv.amountUSDT || inv.amount || 0), 0
+                      );
+                      availableTokensAsOf = (selectedPropertyForPanel.totalTokens || 0) - tokensSoldAsOf;
+                    }
+                    
+                    return (
+                      <>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Sold Tokens</p>
+                          <p className="text-lg font-bold text-green-600">
+                            {formatNumber(tokensSoldAsOf)}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Available Tokens</p>
+                          <p className="text-lg font-bold text-orange-600">
+                            {formatNumber(availableTokensAsOf)}
+                          </p>
+                        </div>
+                        <div className="p-4 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Total Investment</p>
+                          <p className="text-lg font-bold text-card-foreground">
+                            {formatCurrency(totalInvestmentAsOf)}
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
+
+                {/* Cumulative Tokens Sold Chart */}
+                {(() => {
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments for this property
+                  const propInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    return (invPropertyId === propertyId || invPropertyId === selectedPropertyForPanel.displayCode) &&
+                           (inv.status === 'confirmed' || inv.status === 'active');
+                  });
+                  
+                  if (propInvestments.length === 0) return null;
+                  
+                  // Calculate date range
+                  const now = new Date();
+                  let startDate = new Date();
+                  switch (chartTimeRange) {
+                    case '5d':
+                      startDate = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+                      break;
+                    case '30d':
+                      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                      break;
+                    case '90d':
+                      startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                      break;
+                    case 'all':
+                      // Use earliest investment date
+                      const earliestDate = new Date(Math.min(...propInvestments.map(inv => 
+                        new Date(inv.createdAt || inv.created_at || inv.date)
+                      )));
+                      startDate = earliestDate;
+                      break;
+                  }
+                  
+                  // Group investments by date and calculate cumulative tokens
+                  const investmentsByDate = new Map();
+                  propInvestments.forEach(inv => {
+                    const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                    if (invDate >= startDate) {
+                      const dateKey = invDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                      if (!investmentsByDate.has(dateKey)) {
+                        investmentsByDate.set(dateKey, []);
+                      }
+                      investmentsByDate.get(dateKey).push(inv);
+                    }
+                  });
+                  
+                  // Create sorted date array
+                  const sortedDates = Array.from(investmentsByDate.keys()).sort();
+                  
+                  // Calculate cumulative data
+                  let cumulativeTokens = 0;
+                  const chartData = sortedDates.map(date => {
+                    const dayInvestments = investmentsByDate.get(date);
+                    const dayTokens = dayInvestments.reduce((sum, inv) => 
+                      sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                    );
+                    cumulativeTokens += dayTokens;
+                    
+                    return {
+                      date,
+                      dateFormatted: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                      tokens: cumulativeTokens,
+                      dayTokens: dayTokens
+                    };
+                  });
+                  
+                  // If no data in range, return null
+                  if (chartData.length === 0) return null;
+                  
+                  return (
+                    <Card className="p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-semibold text-card-foreground">Cumulative Tokens Sold</h4>
+                        <div className="flex items-center gap-2">
+                          {['5d', '30d', '90d', 'all'].map(range => (
+                            <button
+                              key={range}
+                              onClick={() => setChartTimeRange(range)}
+                              className={`px-2 py-1 text-xs rounded ${
+                                chartTimeRange === range
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                              }`}
+                            >
+                              {range === 'all' ? 'All' : range}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={chartData}
+                            onMouseMove={(e) => {
+                              if (e && e.activePayload && e.activePayload[0]) {
+                                const data = e.activePayload[0].payload;
+                                // Only update hover if no date is locked
+                                if (!lockedDate) {
+                                  setHoveredDate(data.date);
+                                }
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              // Only clear hover if no date is locked
+                              if (!lockedDate) {
+                                setHoveredDate(null);
+                              }
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.3} />
+                            <XAxis 
+                              dataKey="dateFormatted" 
+                              stroke="#6b7280"
+                              angle={-45}
+                              textAnchor="end"
+                              height={60}
+                            />
+                            <YAxis stroke="#6b7280" />
+                            <Tooltip
+                              formatter={(value) => formatNumber(value)}
+                              labelFormatter={(label) => {
+                                const data = chartData.find(d => d.dateFormatted === label);
+                                return data ? new Date(data.date).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: 'numeric' 
+                                }) : label;
+                              }}
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="tokens" 
+                              stroke="#3b82f6" 
+                              strokeWidth={2}
+                              dot={(props) => {
+                                const { cx, cy, payload } = props;
+                                const isLocked = lockedDate === payload.date;
+                                return (
+                                  <g>
+                                    <circle
+                                      cx={cx}
+                                      cy={cy}
+                                      r={isLocked ? 6 : 4}
+                                      fill={isLocked ? "#10b981" : "#3b82f6"}
+                                      stroke={isLocked ? "#059669" : "#2563eb"}
+                                      strokeWidth={isLocked ? 2 : 1}
+                                    />
+                                  </g>
+                                );
+                              }}
+                              activeDot={(props) => {
+                                const { cx, cy, payload } = props;
+                                const isLocked = lockedDate === payload.date;
+                                return (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={8}
+                                    fill={isLocked ? "#10b981" : "#3b82f6"}
+                                    stroke={isLocked ? "#059669" : "#2563eb"}
+                                    strokeWidth={2}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const clickedDate = payload.date;
+                                      // Toggle lock: if clicking same date, unlock; otherwise lock new date
+                                      if (lockedDate === clickedDate) {
+                                        setLockedDate(null);
+                                        setHoveredDate(null);
+                                      } else {
+                                        setLockedDate(clickedDate);
+                                        setHoveredDate(clickedDate);
+                                      }
+                                    }}
+                                  />
+                                );
+                              }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {activeDate && (
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(activeDate).toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              year: 'numeric' 
+                            })}
+                          </p>
+                          {lockedDate && (
+                            <button
+                              onClick={() => {
+                                setLockedDate(null);
+                                setHoveredDate(null);
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-700 underline"
+                            >
+                              Reset to Current
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })()}
+
+                {/* Funding Remaining - Separate section for emphasis */}
+                {(() => {
+                  // Calculate metrics as of activeDate (locked or hovered) or current
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) {
+                    return (
+                      <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
+                            <p className="text-xl font-bold text-orange-600">
+                              {formatCurrency(Math.max(0, (selectedPropertyForPanel.totalTokenValue || 0) - (selectedPropertyForPanel.totalInvestment || 0)))}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {formatNumber(selectedPropertyForPanel.availableTokens || 0)} tokens remaining
+                            </p>
+                          </div>
+                          <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to hoveredDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  const tokensSoldAsOf = filteredInvestments.reduce((sum, inv) => 
+                    sum + parseFloat(inv.tokensPurchased || inv.tokens || 0), 0
+                  );
+                  const investmentRaisedAsOf = filteredInvestments.reduce((sum, inv) => 
+                    sum + parseFloat(inv.amountUSDT || inv.amount || 0), 0
+                  );
+                  const availableTokensAsOf = (selectedPropertyForPanel.totalTokens || 0) - tokensSoldAsOf;
+                  const fundingRemainingAsOf = Math.max(0, (selectedPropertyForPanel.totalTokenValue || 0) - investmentRaisedAsOf);
+                  
+                  return (
+                    <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Funding Remaining</p>
+                          <p className="text-xl font-bold text-orange-600">
+                            {formatCurrency(fundingRemainingAsOf)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatNumber(availableTokensAsOf)} tokens remaining
+                          </p>
+                        </div>
+                        <TrendingDown className="w-8 h-8 text-orange-600 opacity-50" />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Investor Concentration (Top 1 share) */}
+                {(() => {
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to hoveredDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  // Generate ownership data from filtered investments
+                  const ownershipMap = new Map();
+                  filteredInvestments.forEach(inv => {
+                    const userId = inv.userId || inv.user_id || inv.user?.id;
+                    const userName = inv.user?.name || inv.user?.email || `User ${userId?.slice(0, 8)}` || 'Unknown';
+                    const tokens = parseFloat(inv.tokensPurchased || 0);
+                    
+                    if (ownershipMap.has(userId)) {
+                      ownershipMap.get(userId).tokens += tokens;
+                    } else {
+                      ownershipMap.set(userId, {
+                        userId,
+                        userName,
+                        tokens,
+                        allocationDate: inv.createdAt || inv.created_at || new Date().toISOString()
+                      });
+                    }
+                  });
+                  
+                  const ownershipData = Array.from(ownershipMap.values());
+                  
+                  if (ownershipData.length === 0) return null;
+                  
+                  // Sort by tokens descending and get top 1
+                  const sortedOwnership = [...ownershipData].sort((a, b) => b.tokens - a.tokens);
+                  const top1Holder = sortedOwnership[0];
+                  // Calculate total sold tokens from actual ownership data (not property field)
+                  const totalSoldTokensFromData = ownershipData.reduce((sum, holder) => sum + holder.tokens, 0);
+                  const top1SharePercentage = totalSoldTokensFromData > 0 
+                    ? (top1Holder.tokens / totalSoldTokensFromData) * 100 
+                    : 0;
+                  
+                  return (
+                    <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Top Share</p>
+                          <p className="text-xl font-bold text-purple-600">
+                            {top1SharePercentage.toFixed(1)}%
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Top buyer holds {formatNumber(top1Holder.tokens)} tokens ({top1SharePercentage.toFixed(1)}% of sold)
+                          </p>
+                        </div>
+                        <Users className="w-8 h-8 text-purple-600 opacity-50" />
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Funding Progress */}
                 <div>
@@ -1893,6 +2835,80 @@ const TokensManagement = () => {
                       style={{ width: `${Math.min(selectedPropertyForPanel.fundingPercentage, 100)}%` }}
                     ></div>
                   </div>
+                  {/* 5d Pace for Property */}
+                  {(() => {
+                    let propTokensSold5d = 0;
+                    let propInvestmentRaised5d = 0;
+                    
+                    if (investmentsData?.data) {
+                      const investments = Array.isArray(investmentsData.data)
+                        ? investmentsData.data
+                        : investmentsData.data?.data || investmentsData.data || [];
+                      
+                      const now = new Date();
+                      const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+                      const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                      
+                      const propInvestments5d = investments.filter(inv => {
+                        const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                        const createdAt = new Date(inv.createdAt || inv.created_at || inv.date);
+                        return (invPropertyId === propertyId) &&
+                               (inv.status === 'confirmed' || inv.status === 'active') &&
+                               createdAt >= fiveDaysAgo;
+                      });
+                      
+                      propTokensSold5d = propInvestments5d.reduce((sum, inv) => {
+                        return sum + parseFloat(inv.tokensPurchased || inv.tokens || 0);
+                      }, 0);
+                      
+                      propInvestmentRaised5d = propInvestments5d.reduce((sum, inv) => {
+                        return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
+                      }, 0);
+                    }
+                    
+                    const propAvailableTokens = selectedPropertyForPanel.availableTokens || 0;
+                    const propTokensPerDay = propTokensSold5d > 0 ? propTokensSold5d / 5 : 0;
+                    let propSellOutETA = null;
+                    if (propAvailableTokens <= 0) {
+                      propSellOutETA = 'Sold Out';
+                    } else if (propTokensPerDay > 0) {
+                      const daysToSellOut = Math.ceil(propAvailableTokens / propTokensPerDay);
+                      propSellOutETA = `~${daysToSellOut} days`;
+                    }
+                    
+                    return (
+                      <>
+                        <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-blue-600" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">5d Pace</p>
+                                <p className="text-sm font-semibold text-blue-600">
+                                  {formatNumber(propTokensSold5d)} tokens • {formatCurrency(propInvestmentRaised5d)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        {propSellOutETA && (
+                          <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <TrendingDown className="w-4 h-4 text-orange-600" />
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Sell-out ETA</p>
+                                  <p className="text-sm font-semibold text-orange-600">
+                                    {propSellOutETA}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Organization Info */}
@@ -1917,12 +2933,63 @@ const TokensManagement = () => {
 
                 {/* Ownership Data */}
                 {(() => {
-                  const ownershipData = generateOwnershipData(investmentsData, selectedPropertyForPanel.propertyId);
+                  const propertyId = selectedPropertyForPanel.id || selectedPropertyForPanel.propertyId;
+                  
+                  if (!investmentsData?.data) return null;
+                  
+                  const investments = Array.isArray(investmentsData.data)
+                    ? investmentsData.data
+                    : investmentsData.data?.data || investmentsData.data || [];
+                  
+                  // Filter investments up to activeDate or all
+                  const filteredInvestments = investments.filter(inv => {
+                    const invPropertyId = inv.propertyId || inv.property?.id || inv.property?.displayCode;
+                    if (invPropertyId !== propertyId && invPropertyId !== selectedPropertyForPanel.displayCode) {
+                      return false;
+                    }
+                    if (inv.status !== 'confirmed' && inv.status !== 'active') {
+                      return false;
+                    }
+                    if (activeDate) {
+                      const invDate = new Date(inv.createdAt || inv.created_at || inv.date);
+                      const activeDateObj = new Date(activeDate);
+                      // Set to end of day (23:59:59.999) to include all investments on that date
+                      activeDateObj.setHours(23, 59, 59, 999);
+                      return invDate <= activeDateObj;
+                    }
+                    return true;
+                  });
+                  
+                  // Generate ownership data from filtered investments
+                  const ownershipMap = new Map();
+                  filteredInvestments.forEach(inv => {
+                    const userId = inv.userId || inv.user_id || inv.user?.id;
+                    const userName = inv.user?.name || inv.user?.email || `User ${userId?.slice(0, 8)}` || 'Unknown';
+                    const tokens = parseFloat(inv.tokensPurchased || inv.tokens || 0);
+                    
+                    if (ownershipMap.has(userId)) {
+                      ownershipMap.get(userId).tokens += tokens;
+                    } else {
+                      ownershipMap.set(userId, {
+                        userId,
+                        userName,
+                        tokens,
+                        allocationDate: inv.createdAt || inv.created_at || new Date().toISOString()
+                      });
+                    }
+                  });
+                  
+                  const ownershipData = Array.from(ownershipMap.values());
+                  
                   if (ownershipData.length > 0) {
+                    const totalSoldTokensAsOf = ownershipData.reduce((sum, holder) => sum + holder.tokens, 0);
                     const ownershipWithPercentages = ownershipData.map(inv => ({
                       ...inv,
                       percentage: selectedPropertyForPanel.totalTokens > 0 
                         ? (inv.tokens / selectedPropertyForPanel.totalTokens) * 100 
+                        : 0,
+                      percentageOfSold: totalSoldTokensAsOf > 0
+                        ? (inv.tokens / totalSoldTokensAsOf) * 100
                         : 0
                     })).sort((a, b) => b.tokens - a.tokens).slice(0, 10);
 
@@ -1943,7 +3010,7 @@ const TokensManagement = () => {
                                   {formatNumber(inv.tokens)} tokens
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {inv.percentage.toFixed(2)}%
+                                  {inv.percentageOfSold ? `${inv.percentageOfSold.toFixed(2)}% of sold` : `${inv.percentage.toFixed(2)}%`}
                                 </p>
                               </div>
                             </div>
