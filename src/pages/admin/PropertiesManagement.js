@@ -24,14 +24,15 @@ import {
   Award,
   Calendar,
   Download,
-  ArrowLeft
+  ArrowLeft,
+  Hash
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
 import PropertyForm from '../../components/admin/PropertyForm';
-import { adminAPI, rewardsAPI, investmentsAPI, blocksBackendAPI, propertiesAPI, walletTransactionsAPI } from '../../services/api';
+import { adminAPI, rewardsAPI, investmentsAPI, blocksBackendAPI, propertiesAPI, walletTransactionsAPI, propertyTokensAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { useToast } from '../../components/ui/Toast';
 import { cn } from '../../utils/cn';
@@ -111,10 +112,10 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     }
   }, [openFilterPanel]);
 
-  // Fetch property details for full details view
+  // Fetch property details for full details view (with tokens)
   const { data: fullPropertyData, isLoading: fullPropertyLoading } = useQuery(
     ['property-details', selectedPropertyId],
-    () => propertiesAPI.getById(selectedPropertyId),
+    () => propertiesAPI.getById(selectedPropertyId, { includeTokens: true }),
     {
       enabled: Boolean(selectedPropertyId && actionPanel === 'full-details'),
       retry: 1
@@ -137,6 +138,27 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     () => walletTransactionsAPI.getAll({ limit: 1000 }),
     {
       enabled: Boolean(selectedPropertyId && actionPanel === 'full-details'),
+      retry: 1
+    }
+  );
+
+  // Fetch property token tiers for full details view
+  const { data: propertyTokensData, isLoading: propertyTokensLoading } = useQuery(
+    ['property-tokens', selectedPropertyId],
+    () => propertyTokensAPI.getByProperty(selectedPropertyId, true),
+    {
+      enabled: Boolean(selectedPropertyId && actionPanel === 'full-details'),
+      retry: 1
+    }
+  );
+
+  // Fetch property token tiers for simple view panel
+  const viewPropertyId = selectedProperty?.id || selectedProperty?.displayCode;
+  const { data: viewPropertyTokensData } = useQuery(
+    ['property-tokens-view', viewPropertyId],
+    () => propertyTokensAPI.getByProperty(viewPropertyId, true),
+    {
+      enabled: Boolean(viewPropertyId && actionPanel === 'view'),
       retry: 1
     }
   );
@@ -348,7 +370,39 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           }
         }
         
-        toast.success(`Property "${displayCode}" created successfully!`);
+        // Create token tiers if provided
+        if (propertyId && propertyData._tokenTiers && Array.isArray(propertyData._tokenTiers) && propertyData._tokenTiers.length > 0) {
+          try {
+            console.log('🏗️ Creating token tiers for property:', propertyId, propertyData._tokenTiers);
+            
+            const tokenPromises = propertyData._tokenTiers.map((tier, index) => {
+              const tokenData = {
+                propertyId,
+                name: tier.name,
+                color: tier.color,
+                tokenSymbol: tier.tokenSymbol.toUpperCase(),
+                pricePerTokenUSDT: parseFloat(tier.pricePerTokenUSDT),
+                totalTokens: parseFloat(tier.totalTokens),
+                expectedROI: parseFloat(tier.expectedROI),
+                apartmentType: tier.apartmentType || null,
+                apartmentFeatures: tier.apartmentFeatures || null,
+                description: tier.description || null,
+                displayOrder: tier.displayOrder !== undefined ? parseInt(tier.displayOrder) : index,
+                isActive: tier.isActive !== undefined ? tier.isActive : true,
+              };
+              return propertyTokensAPI.create(tokenData);
+            });
+            
+            await Promise.all(tokenPromises);
+            console.log('✅ All token tiers created successfully');
+            toast.success(`Property "${displayCode}" created with ${propertyData._tokenTiers.length} token tier(s)!`);
+          } catch (tokenError) {
+            console.error('❌ Failed to create token tiers:', tokenError);
+            toast.error(`Property "${displayCode}" created but failed to create token tiers. Please add them manually.`);
+          }
+        } else {
+          toast.success(`Property "${displayCode}" created successfully!`);
+        }
       },
       onError: (error) => {
         console.error('❌ Failed to create property:', error);
@@ -915,9 +969,11 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     if (propertyId) {
       try {
         console.log('📥 Fetching full property data for editing:', propertyId);
-        const response = await adminAPI.getProperty(propertyId);
-        const fullProperty = response?.data?.data || response?.data || property;
+        // Fetch property with tokens included
+        const response = await propertiesAPI.getById(propertyId, { includeTokens: true });
+        const fullProperty = response?.data?.data || response?.data || response;
         console.log('✅ Fetched full property data from backend:', fullProperty);
+        console.log('📦 Property tokens:', fullProperty.tokens);
         setEditingProperty(fullProperty);
         setShowPropertyForm(true);
         setActionPanel('edit');
@@ -1785,8 +1841,22 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
               {/* View Property Details */}
               {actionPanel === 'view' && selectedProperty && (() => {
-                const totalTokens = parseFloat(selectedProperty.tokenization_total_tokens || 0);
-                const availableTokens = parseFloat(selectedProperty.tokenization_available_tokens || 0);
+                // Get token tiers from API query result
+                const propertyTokensFromAPI = viewPropertyTokensData?.data || viewPropertyTokensData || selectedProperty.tokens || [];
+                
+                let totalTokens, availableTokens, tokensLeft;
+                if (Array.isArray(propertyTokensFromAPI) && propertyTokensFromAPI.length > 0) {
+                  // Calculate from token tiers
+                  totalTokens = propertyTokensFromAPI.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0);
+                  availableTokens = propertyTokensFromAPI.reduce((sum, tier) => sum + (parseFloat(tier.availableTokens) || 0), 0);
+                  tokensLeft = availableTokens;
+                } else {
+                  // Legacy: Use property-level values
+                  totalTokens = parseFloat(selectedProperty.tokenization_total_tokens || selectedProperty.totalTokens || 0);
+                  availableTokens = parseFloat(selectedProperty.tokenization_available_tokens || selectedProperty.availableTokens || 0);
+                  tokensLeft = availableTokens;
+                }
+                
                 const soldTokens = totalTokens - availableTokens;
                 const fundingProgress = totalTokens > 0 ? ((soldTokens / totalTokens) * 100) : 0;
                 const totalValue = parseFloat(selectedProperty.pricing_total_value || selectedProperty.totalValueUSDT || 0);
@@ -1814,13 +1884,87 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       </Card>
                       <Card variant="tertiary" className="p-3">
                         <p className="text-xs text-muted-foreground mb-1">Tokens Left</p>
-                        <p className="text-base font-bold text-card-foreground">{availableTokens.toLocaleString()}</p>
+                        <p className="text-base font-bold text-card-foreground">{tokensLeft.toLocaleString()}</p>
                       </Card>
                       <Card variant="tertiary" className="p-3">
                         <p className="text-xs text-muted-foreground mb-1">ROI</p>
                         <p className="text-base font-bold text-green-600">{roi}%</p>
                       </Card>
                     </div>
+
+                    {/* Token Tiers Section */}
+                    {Array.isArray(propertyTokensFromAPI) && propertyTokensFromAPI.length > 0 && (
+                      <Card variant="tertiary" className="p-4">
+                        <h3 className="text-base font-semibold text-card-foreground mb-3 flex items-center gap-2">
+                          <Hash className="w-4 h-4" />
+                          Token Tiers
+                        </h3>
+                        <div className="space-y-3">
+                          {propertyTokensFromAPI
+                            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                            .map((tier) => {
+                              const tierAvailable = parseFloat(tier.availableTokens || 0);
+                              const tierTotal = parseFloat(tier.totalTokens || 0);
+                              return (
+                                <div
+                                  key={tier.id}
+                                  className="p-3 bg-accent/10 rounded-lg border border-border/40"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                                        style={{ backgroundColor: tier.color || '#CD7F32' }}
+                                      >
+                                        {tier.tokenSymbol || tier.displayCode}
+                                      </div>
+                                      <div>
+                                        <h4 className="text-sm font-semibold text-card-foreground">
+                                          {tier.name}
+                                        </h4>
+                                        {!tier.isActive && (
+                                          <span className="text-xs text-red-600">Inactive</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
+                                    <div>
+                                      <span className="text-muted-foreground">Price:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        ${parseFloat(tier.pricePerTokenUSDT || 0).toFixed(2)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">ROI:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {parseFloat(tier.expectedROI || 0).toFixed(2)}%
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Available:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {tierAvailable.toLocaleString()} / {tierTotal.toLocaleString()}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Total:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {tierTotal.toLocaleString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {tier.apartmentType && (
+                                    <div className="mt-2 text-xs text-muted-foreground">
+                                      Apartment Type: {tier.apartmentType}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </Card>
+                    )}
 
                     {/* Property Information */}
                     <Card variant="tertiary" className="p-4">
@@ -2124,11 +2268,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 const fullProperty = fullPropertyData?.data || fullPropertyData || {};
                 const allInvestments = fullInvestmentsData?.data?.investments || fullInvestmentsData?.data || (Array.isArray(fullInvestmentsData) ? fullInvestmentsData : []);
                 const allTransactions = fullTransactionsData?.data?.transactions || fullTransactionsData?.data || (Array.isArray(fullTransactionsData) ? fullTransactionsData : []);
+                const propertyTokens = propertyTokensData?.data || propertyTokensData || [];
                 
                 const propertyInvestments = allInvestments.filter(inv => 
                   (inv.propertyId === selectedPropertyId || inv.property_id === selectedPropertyId || inv.property?.id === selectedPropertyId)
                 );
-                
+
                 const propertyTransactions = allTransactions.filter(txn => 
                   (txn.propertyId === selectedPropertyId || txn.property_id === selectedPropertyId || txn.property?.id === selectedPropertyId)
                 );
@@ -2144,10 +2289,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   if (userId) uniqueBuyers.add(userId);
                 });
 
-                const totalTokens = parseFloat(fullProperty.totalTokens || fullProperty.total_tokens || 0);
-                const availableTokens = parseFloat(fullProperty.availableTokens || fullProperty.available_tokens || 0);
+                // Calculate tokens from token tiers if they exist, otherwise use property-level values
+                let totalTokens, availableTokens, tokensLeft;
+                if (Array.isArray(propertyTokens) && propertyTokens.length > 0) {
+                  // Calculate from token tiers
+                  totalTokens = propertyTokens.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0);
+                  availableTokens = propertyTokens.reduce((sum, tier) => sum + (parseFloat(tier.availableTokens) || 0), 0);
+                  tokensLeft = availableTokens;
+                } else {
+                  // Legacy: Use property-level values
+                  totalTokens = parseFloat(fullProperty.totalTokens || fullProperty.total_tokens || 0);
+                  availableTokens = parseFloat(fullProperty.availableTokens || fullProperty.available_tokens || 0);
+                  tokensLeft = availableTokens;
+                }
+                
                 const tokensSold = totalTokens - availableTokens;
-                const tokensLeft = availableTokens;
                 const pricePerToken = parseFloat(fullProperty.pricePerTokenUSDT || fullProperty.price_per_token_usdt || fullProperty.pricePerToken || 0);
                 const totalValueUSDT = parseFloat(fullProperty.totalValueUSDT || fullProperty.total_value_usdt || fullProperty.pricing_total_value || 0);
                 const fundingProgress = totalValueUSDT > 0 ? (totalInvestment / totalValueUSDT) * 100 : 0;
@@ -2227,6 +2383,89 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       <StatCard title="Tokens Left" value={tokensLeft || 0} icon={Target} color="yellow" />
                       <StatCard title="ROI" value={`${expectedROI || 0}%`} icon={TrendingUp} color="purple" />
                     </div>
+
+                    {/* Token Tiers Section */}
+                    {Array.isArray(propertyTokens) && propertyTokens.length > 0 && (
+                      <Card className="p-4">
+                        <h3 className="text-base font-semibold text-card-foreground mb-3 flex items-center gap-2">
+                          <Hash className="w-4 h-4" />
+                          Token Tiers
+                        </h3>
+                        <div className="space-y-3">
+                          {propertyTokens
+                            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                            .map((tier) => {
+                              const tierTotalTokens = parseFloat(tier.totalTokens || 0);
+                              const tierAvailableTokens = parseFloat(tier.availableTokens || 0);
+                              const tierSoldTokens = tierTotalTokens - tierAvailableTokens;
+                              const tierInvestments = propertyInvestments.filter(inv => 
+                                inv.propertyTokenId === tier.id || inv.property_token_id === tier.id
+                              );
+                              const tierInvestment = tierInvestments.reduce((sum, inv) => {
+                                return sum + parseFloat(inv.amountUSDT || inv.amount || 0);
+                              }, 0);
+                              
+                              return (
+                                <div
+                                  key={tier.id}
+                                  className="p-3 bg-accent/10 rounded-lg border border-border/40"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                                        style={{ backgroundColor: tier.color || '#CD7F32' }}
+                                      >
+                                        {tier.tokenSymbol || tier.displayCode}
+                                      </div>
+                                      <div>
+                                        <h4 className="text-sm font-semibold text-card-foreground">
+                                          {tier.name}
+                                        </h4>
+                                        {!tier.isActive && (
+                                          <span className="text-xs text-red-600">Inactive</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
+                                    <div>
+                                      <span className="text-muted-foreground">Price:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        ${parseFloat(tier.pricePerTokenUSDT || 0).toFixed(2)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">ROI:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {parseFloat(tier.expectedROI || 0).toFixed(2)}%
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Available:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {tierAvailableTokens.toLocaleString()} / {tierTotalTokens.toLocaleString()}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Investment:</span>
+                                      <p className="font-semibold text-card-foreground">
+                                        {formatExactPrice(tierInvestment, '$')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {tier.apartmentType && (
+                                    <div className="mt-2 text-xs text-muted-foreground">
+                                      Apartment Type: {tier.apartmentType}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </Card>
+                    )}
+
                     <Card className="p-4">
                       <h3 className="text-base font-semibold text-card-foreground mb-3">Property Information</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">

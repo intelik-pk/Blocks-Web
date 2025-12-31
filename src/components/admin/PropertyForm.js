@@ -3,7 +3,7 @@ import { X, Save, Building2, MapPin, DollarSign, TrendingUp, Hash, Plus, Trash2,
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import SimpleMap from './SimpleMap';
-import { adminAPI, uploadAPI, propertiesAPI, blocksBackendAPI } from '../../services/api';
+import { adminAPI, uploadAPI, propertiesAPI, blocksBackendAPI, propertyTokensAPI } from '../../services/api';
 import { supabaseUpload } from '../../services/supabaseUpload';
 import { useToast } from '../ui/Toast';
 
@@ -108,6 +108,43 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
   const [loadingPropertyData, setLoadingPropertyData] = useState(false);
   const formDataLoadedForPropertyRef = useRef(null); // Track which property ID has had its form data loaded
   const fetchedPropertyIdRef = useRef(null); // Track which property ID we've fetched from API
+  
+  // Token Tier Management State (for creating new property)
+  const [tokenTiers, setTokenTiers] = useState([]); // Array of token tiers to create
+  const [showTokenTierForm, setShowTokenTierForm] = useState(false);
+  const [editingTierIndex, setEditingTierIndex] = useState(null);
+  const [tokenTierFormData, setTokenTierFormData] = useState({
+    name: '',
+    color: '#CD7F32',
+    tokenSymbol: '',
+    pricePerTokenUSDT: '',
+    totalTokens: '',
+    expectedROI: '',
+    apartmentType: '',
+    apartmentFeatures: {},
+    description: '',
+    displayOrder: 0,
+    isActive: true,
+  });
+
+  // Token Tier Management State (for existing property)
+  const [propertyTokens, setPropertyTokens] = useState([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [editingToken, setEditingToken] = useState(null);
+  const [tokenFormData, setTokenFormData] = useState({
+    name: '',
+    color: '#CD7F32',
+    tokenSymbol: '',
+    pricePerTokenUSDT: '',
+    totalTokens: '',
+    expectedROI: '',
+    apartmentType: '',
+    apartmentFeatures: {},
+    description: '',
+    displayOrder: 0,
+    isActive: true,
+  });
 
   // Fetch full property data from backend when editing
   useEffect(() => {
@@ -146,6 +183,30 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     };
     
     fetchFullProperty();
+  }, [property?.id, property?.displayCode]);
+
+  // Fetch property tokens when editing existing property
+  useEffect(() => {
+    const fetchTokens = async () => {
+      if (property && (property.id || property.displayCode)) {
+        const propertyId = property.id || property.displayCode;
+        setLoadingTokens(true);
+        try {
+          const response = await propertyTokensAPI.getByProperty(propertyId, true);
+          const tokens = response?.data?.data || response?.data || response || [];
+          setPropertyTokens(Array.isArray(tokens) ? tokens : []);
+        } catch (error) {
+          console.error('Failed to load property tokens:', error);
+          setPropertyTokens([]);
+        } finally {
+          setLoadingTokens(false);
+        }
+      } else {
+        setPropertyTokens([]);
+      }
+    };
+    
+    fetchTokens();
   }, [property?.id, property?.displayCode]);
 
   // Fetch organizations from database
@@ -859,11 +920,25 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     if (!formData.totalValueUSDT || parseFloat(formData.totalValueUSDT) <= 0) {
       validationErrors.push('Total Value (USDT) must be greater than 0');
     }
-    if (!formData.totalTokens || parseInt(formData.totalTokens) <= 0) {
-      validationErrors.push('Total Tokens must be greater than 0');
-    }
-    if (formData.expectedROI === undefined || formData.expectedROI === null || formData.expectedROI === '') {
-      validationErrors.push('Expected ROI is required');
+    // If token tiers are provided, calculate totals from tiers; otherwise require fields
+    if (tokenTiers.length > 0) {
+      // Validate token tiers
+      if (tokenTiers.length === 0) {
+        validationErrors.push('At least one token tier is required');
+      }
+      tokenTiers.forEach((tier, index) => {
+        if (!tier.name || !tier.tokenSymbol || !tier.pricePerTokenUSDT || !tier.totalTokens || !tier.expectedROI) {
+          validationErrors.push(`Token tier ${index + 1} is missing required fields`);
+        }
+      });
+    } else {
+      // Legacy: require totalTokens and expectedROI if no token tiers
+      if (!formData.totalTokens || parseInt(formData.totalTokens) <= 0) {
+        validationErrors.push('Total Tokens must be greater than 0 (or add token tiers)');
+      }
+      if (formData.expectedROI === undefined || formData.expectedROI === null || formData.expectedROI === '') {
+        validationErrors.push('Expected ROI is required (or add token tiers)');
+      }
     }
     if (!formData.status || formData.status.trim() === '') {
       validationErrors.push('Status is required');
@@ -917,8 +992,14 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       type: formData.type,
       status: formData.status,
       totalValueUSDT: parseFloat(formData.totalValueUSDT) || 0,
-      totalTokens: parseInt(formData.totalTokens) || 1000,
-      expectedROI: parseFloat(formData.expectedROI) || 0,
+      // Calculate totalTokens from token tiers if provided, otherwise use formData
+      totalTokens: tokenTiers.length > 0 
+        ? tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0)
+        : (parseInt(formData.totalTokens) || 1000),
+      // Use average ROI from token tiers if provided, otherwise use formData
+      expectedROI: tokenTiers.length > 0
+        ? (tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.expectedROI) || 0), 0) / tokenTiers.length)
+        : (parseFloat(formData.expectedROI) || 0),
       
       // Basic information - ensure required fields are not empty
       title: (formData.title && formData.title.trim()) || '',
@@ -1178,8 +1259,16 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     if (!dataToSend.type) finalValidationErrors.push('Property type is required');
     if (!dataToSend.status) finalValidationErrors.push('Status is required');
     if (!dataToSend.totalValueUSDT || dataToSend.totalValueUSDT <= 0) finalValidationErrors.push('Total Value USDT must be greater than 0');
-    if (!dataToSend.totalTokens || dataToSend.totalTokens <= 0) finalValidationErrors.push('Total Tokens must be greater than 0');
-    if (dataToSend.expectedROI === undefined || dataToSend.expectedROI === null) finalValidationErrors.push('Expected ROI is required');
+    // Validate totals - either from token tiers or form fields
+    if (tokenTiers.length > 0) {
+      const totalTokensFromTiers = tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0);
+      if (totalTokensFromTiers <= 0) {
+        finalValidationErrors.push('Token tiers must have at least one token');
+      }
+    } else {
+      if (!dataToSend.totalTokens || dataToSend.totalTokens <= 0) finalValidationErrors.push('Total Tokens must be greater than 0 (or add token tiers)');
+      if (dataToSend.expectedROI === undefined || dataToSend.expectedROI === null) finalValidationErrors.push('Expected ROI is required (or add token tiers)');
+    }
     if (!dataToSend.title || dataToSend.title.trim() === '') finalValidationErrors.push('Title is required');
     if (!dataToSend.description || dataToSend.description.trim() === '') finalValidationErrors.push('Description is required');
     
@@ -1192,6 +1281,14 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     
     console.log('✅ ====== SENDING DATA TO BACKEND ======');
     console.log('📤 Final payload:', JSON.stringify(dataToSend, null, 2));
+    
+    // If creating new property with token tiers, store them to create after property is saved
+    if (!property && tokenTiers.length > 0) {
+      dataToSend._tokenTiers = tokenTiers;
+      console.log(`📦 Attaching ${tokenTiers.length} token tier(s) to property creation`);
+    }
+    
+    // Call onSave - the parent component (PropertiesManagement) will handle token tier creation
     onSave(dataToSend);
   };
 
@@ -1592,6 +1689,192 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       ...prev,
       features: prev.features.filter((_, i) => i !== index)
     }));
+  };
+
+  // Token Tier Management Functions
+  const handleTokenFormChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setTokenFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleCreateToken = async () => {
+    if (!property || (!property.id && !property.displayCode)) {
+      toast.error('Please save the property first before adding token tiers');
+      return;
+    }
+
+    const propertyId = property.id || property.displayCode;
+    
+    try {
+      const tokenData = {
+        propertyId,
+        name: tokenFormData.name,
+        color: tokenFormData.color,
+        tokenSymbol: tokenFormData.tokenSymbol.toUpperCase(),
+        pricePerTokenUSDT: parseFloat(tokenFormData.pricePerTokenUSDT),
+        totalTokens: parseFloat(tokenFormData.totalTokens),
+        expectedROI: parseFloat(tokenFormData.expectedROI),
+        apartmentType: tokenFormData.apartmentType || null,
+        apartmentFeatures: tokenFormData.apartmentFeatures || null,
+        description: tokenFormData.description || null,
+        displayOrder: parseInt(tokenFormData.displayOrder) || 0,
+        isActive: tokenFormData.isActive,
+      };
+
+      if (editingToken) {
+        // Update existing token
+        await propertyTokensAPI.update(editingToken.id || editingToken.displayCode, tokenData);
+        toast.success('Token tier updated successfully');
+      } else {
+        // Create new token
+        await propertyTokensAPI.create(tokenData);
+        toast.success('Token tier created successfully');
+      }
+
+      // Refresh tokens list
+      const response = await propertyTokensAPI.getByProperty(propertyId, true);
+      const tokens = response?.data?.data || response?.data || response || [];
+      setPropertyTokens(Array.isArray(tokens) ? tokens : []);
+
+      // Reset form
+      setTokenFormData({
+        name: '',
+        color: '#CD7F32',
+        tokenSymbol: '',
+        pricePerTokenUSDT: '',
+        totalTokens: '',
+        expectedROI: '',
+        apartmentType: '',
+        apartmentFeatures: {},
+        description: '',
+        displayOrder: 0,
+        isActive: true,
+      });
+      setShowTokenForm(false);
+      setEditingToken(null);
+    } catch (error) {
+      console.error('Failed to save token tier:', error);
+      toast.error(error?.response?.data?.message || 'Failed to save token tier');
+    }
+  };
+
+  const handleEditToken = (token) => {
+    setEditingToken(token);
+    setTokenFormData({
+      name: token.name || '',
+      color: token.color || '#CD7F32',
+      tokenSymbol: token.tokenSymbol || token.displayCode || '',
+      pricePerTokenUSDT: token.pricePerTokenUSDT || '',
+      totalTokens: token.totalTokens || '',
+      expectedROI: token.expectedROI || '',
+      apartmentType: token.apartmentType || '',
+      apartmentFeatures: token.apartmentFeatures || {},
+      description: token.description || '',
+      displayOrder: token.displayOrder || 0,
+      isActive: token.isActive !== undefined ? token.isActive : true,
+    });
+    setShowTokenForm(true);
+  };
+
+  const handleDeleteToken = async (token) => {
+    if (!window.confirm(`Delete token tier "${token.name}" (${token.displayCode})?`)) {
+      return;
+    }
+
+    try {
+      await propertyTokensAPI.delete(token.id || token.displayCode);
+      toast.success('Token tier deleted successfully');
+      
+      // Refresh tokens list
+      const propertyId = property.id || property.displayCode;
+      const response = await propertyTokensAPI.getByProperty(propertyId, true);
+      const tokens = response?.data?.data || response?.data || response || [];
+      setPropertyTokens(Array.isArray(tokens) ? tokens : []);
+    } catch (error) {
+      console.error('Failed to delete token tier:', error);
+      toast.error(error?.response?.data?.message || 'Failed to delete token tier');
+    }
+  };
+
+  // Token Tier Management for Property Creation
+  const handleTokenTierFormChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setTokenTierFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const addTokenTier = () => {
+    if (!tokenTierFormData.name || !tokenTierFormData.tokenSymbol || !tokenTierFormData.pricePerTokenUSDT || !tokenTierFormData.totalTokens || !tokenTierFormData.expectedROI) {
+      toast.error('Please fill in all required fields (Name, Symbol, Price, Tokens, ROI)');
+      return;
+    }
+
+    const newTier = {
+      ...tokenTierFormData,
+      tokenSymbol: tokenTierFormData.tokenSymbol.toUpperCase(),
+      pricePerTokenUSDT: parseFloat(tokenTierFormData.pricePerTokenUSDT),
+      totalTokens: parseFloat(tokenTierFormData.totalTokens),
+      expectedROI: parseFloat(tokenTierFormData.expectedROI),
+      displayOrder: tokenTiers.length,
+    };
+
+    if (editingTierIndex !== null) {
+      // Update existing tier
+      const updated = [...tokenTiers];
+      updated[editingTierIndex] = newTier;
+      setTokenTiers(updated);
+      setEditingTierIndex(null);
+    } else {
+      // Add new tier
+      setTokenTiers([...tokenTiers, newTier]);
+    }
+
+    // Reset form
+    setTokenTierFormData({
+      name: '',
+      color: '#CD7F32',
+      tokenSymbol: '',
+      pricePerTokenUSDT: '',
+      totalTokens: '',
+      expectedROI: '',
+      apartmentType: '',
+      apartmentFeatures: {},
+      description: '',
+      displayOrder: tokenTiers.length + 1,
+      isActive: true,
+    });
+    setShowTokenTierForm(false);
+  };
+
+  const editTokenTier = (index) => {
+    const tier = tokenTiers[index];
+    setTokenTierFormData({
+      name: tier.name || '',
+      color: tier.color || '#CD7F32',
+      tokenSymbol: tier.tokenSymbol || '',
+      pricePerTokenUSDT: tier.pricePerTokenUSDT || '',
+      totalTokens: tier.totalTokens || '',
+      expectedROI: tier.expectedROI || '',
+      apartmentType: tier.apartmentType || '',
+      apartmentFeatures: tier.apartmentFeatures || {},
+      description: tier.description || '',
+      displayOrder: tier.displayOrder || index,
+      isActive: tier.isActive !== undefined ? tier.isActive : true,
+    });
+    setEditingTierIndex(index);
+    setShowTokenTierForm(true);
+  };
+
+  const removeTokenTier = (index) => {
+    if (window.confirm(`Remove token tier "${tokenTiers[index].name}"?`)) {
+      const updated = tokenTiers.filter((_, i) => i !== index);
+      setTokenTiers(updated);
+    }
   };
 
   // Amenities Management
@@ -2197,29 +2480,46 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                  <span>Total Tokens</span>
-                  <span className="text-red-500 text-xs">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    name="totalTokens"
-                    value={formData.totalTokens}
-                    onChange={handleChange}
-                    required
-                    min="1"
-                    step="1"
-                    placeholder="1000"
-                    className="w-full px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
-                  />
+              {/* Total Tokens - Show calculated value if token tiers exist, otherwise show input */}
+              {tokenTiers.length > 0 ? (
+                <div className="space-y-2 md:col-span-2">
+                  <label className="block text-sm font-semibold text-foreground mb-2">
+                    <span>Total Tokens (Calculated from Tiers)</span>
+                  </label>
+                  <div className="px-4 py-3 text-sm border border-input/70 bg-accent/20 text-card-foreground rounded-xl font-semibold">
+                    {tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0).toLocaleString()} tokens
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This is automatically calculated from the sum of all token tiers below
+                  </p>
+                  {/* Hidden input for backend validation */}
+                  <input type="hidden" name="totalTokens" value={tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0)} />
                 </div>
-                <p className="text-xs text-muted-foreground mt-2 leading-relaxed flex items-start gap-1.5">
-                  <span className="text-primary mt-0.5">ℹ️</span>
-                  <span>Total token supply for this property (e.g., 20000)</span>
-                </p>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                    <span>Total Tokens</span>
+                    <span className="text-red-500 text-xs">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      name="totalTokens"
+                      value={formData.totalTokens}
+                      onChange={handleChange}
+                      required
+                      min="1"
+                      step="1"
+                      placeholder="1000"
+                      className="w-full px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed flex items-start gap-1.5">
+                    <span className="text-primary mt-0.5">ℹ️</span>
+                    <span>Total token supply for this property (e.g., 20000) - OR add token tiers below</span>
+                  </p>
+                </div>
+              )}
               {/* COMMENTED OUT: Construction Progress - Not in DB */}
               {/* <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
@@ -2308,23 +2608,48 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                   placeholder="Enter full ROI (e.g., 11.5)"
                 />
               </div> */}
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                  <span>Expected ROI (%)</span>
-                  <span className="text-red-500 text-xs">*</span>
-                </label>
-                <input
-                  type="number"
-                  name="expectedROI"
-                  value={formData.expectedROI}
-                  onChange={handleChange}
-                  required
-                  min="0"
-                  step="0.1"
-                  placeholder="11.5"
-                  className="w-full px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
-                />
-              </div>
+              {/* Expected ROI - Show average if token tiers exist, otherwise show input */}
+              {tokenTiers.length > 0 ? (
+                <div className="space-y-2 md:col-span-2">
+                  <label className="block text-sm font-semibold text-foreground mb-2">
+                    <span>Expected ROI (Average from Tiers)</span>
+                  </label>
+                  <div className="px-4 py-3 text-sm border border-input/70 bg-accent/20 text-card-foreground rounded-xl font-semibold">
+                    {tokenTiers.length > 0 
+                      ? (tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.expectedROI) || 0), 0) / tokenTiers.length).toFixed(2)
+                      : '0.00'}%
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Average ROI calculated from all token tiers (each tier has its own ROI)
+                  </p>
+                  {/* Hidden input for backend validation */}
+                  <input 
+                    type="hidden" 
+                    name="expectedROI" 
+                    value={tokenTiers.length > 0 
+                      ? (tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.expectedROI) || 0), 0) / tokenTiers.length)
+                      : formData.expectedROI} 
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                    <span>Expected ROI (%)</span>
+                    <span className="text-red-500 text-xs">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="expectedROI"
+                    value={formData.expectedROI}
+                    onChange={handleChange}
+                    required
+                    min="0"
+                    step="0.1"
+                    placeholder="11.5"
+                    className="w-full px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
                   <span>Status</span>
@@ -2342,6 +2667,317 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div>
             </div>
           </Card>
+
+          {/* Token Tiers Section - For Property Creation */}
+          {!property && (
+            <Card className="p-6 md:p-8 bg-card/80 backdrop-blur-sm border border-border/60 shadow-sm hover:shadow-lg transition-all duration-300 rounded-xl">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-border/40">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10">
+                    <Hash className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-card-foreground">
+                      Token Tiers
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">Define multiple token tiers for this property</p>
+                  </div>
+                </div>
+                {!showTokenTierForm && (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setShowTokenTierForm(true);
+                      setEditingTierIndex(null);
+                      setTokenTierFormData({
+                        name: '',
+                        color: '#CD7F32',
+                        tokenSymbol: '',
+                        pricePerTokenUSDT: '',
+                        totalTokens: '',
+                        expectedROI: '',
+                        apartmentType: '',
+                        apartmentFeatures: {},
+                        description: '',
+                        displayOrder: tokenTiers.length,
+                        isActive: true,
+                      });
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-xl transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Token Tier</span>
+                  </Button>
+                )}
+              </div>
+
+              {showTokenTierForm ? (
+                <div className="space-y-4 p-4 bg-accent/10 rounded-xl border border-border/40 mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h5 className="text-base font-semibold text-card-foreground">
+                      {editingTierIndex !== null ? 'Edit Token Tier' : 'Create New Token Tier'}
+                    </h5>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowTokenTierForm(false);
+                        setEditingTierIndex(null);
+                      }}
+                      className="px-3 py-1.5"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Token Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        value={tokenTierFormData.name}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="e.g., Bronze Token"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Token Symbol <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="tokenSymbol"
+                        value={tokenTierFormData.tokenSymbol}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="e.g., MBT (must be unique)"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl uppercase"
+                        required
+                        maxLength={20}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Color <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          name="color"
+                          value={tokenTierFormData.color}
+                          onChange={handleTokenTierFormChange}
+                          className="w-16 h-10 rounded-xl border border-input/70"
+                        />
+                        <input
+                          type="text"
+                          name="color"
+                          value={tokenTierFormData.color}
+                          onChange={handleTokenTierFormChange}
+                          placeholder="#CD7F32"
+                          className="flex-1 px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Price per Token (USDT) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="pricePerTokenUSDT"
+                        value={tokenTierFormData.pricePerTokenUSDT}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="200.00"
+                        min="0.000001"
+                        step="0.01"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Number of Tokens <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="totalTokens"
+                        value={tokenTierFormData.totalTokens}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="1000"
+                        min="1"
+                        step="1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Expected ROI (%) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="expectedROI"
+                        value={tokenTierFormData.expectedROI}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="12.5"
+                        min="0"
+                        step="0.1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Apartment Type
+                      </label>
+                      <input
+                        type="text"
+                        name="apartmentType"
+                        value={tokenTierFormData.apartmentType}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="e.g., Studio, 1BR, 2BR"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Display Order
+                      </label>
+                      <input
+                        type="number"
+                        name="displayOrder"
+                        value={tokenTierFormData.displayOrder}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="0"
+                        min="0"
+                        step="1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Description
+                      </label>
+                      <textarea
+                        name="description"
+                        value={tokenTierFormData.description}
+                        onChange={handleTokenTierFormChange}
+                        placeholder="Token tier description..."
+                        rows="3"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        name="isActive"
+                        checked={tokenTierFormData.isActive}
+                        onChange={handleTokenTierFormChange}
+                        className="h-4 w-4 text-primary focus:ring-ring border-input rounded"
+                      />
+                      <label className="text-sm text-foreground">Active (available for investment)</label>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      type="button"
+                      onClick={addTokenTier}
+                      className="flex-1 bg-purple-500 hover:bg-purple-600 text-white"
+                    >
+                      {editingTierIndex !== null ? 'Update Token Tier' : 'Add Token Tier'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowTokenTierForm(false);
+                        setEditingTierIndex(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {tokenTiers.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Hash className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No token tiers added yet</p>
+                  <p className="text-xs mt-1">Add token tiers to define different investment options for this property</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tokenTiers
+                    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                    .map((tier, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-4 bg-accent/10 rounded-xl border border-border/40 hover:border-border/60 transition-all"
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          <div
+                            className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm"
+                            style={{ backgroundColor: tier.color || '#CD7F32' }}
+                          >
+                            {tier.tokenSymbol}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h6 className="text-base font-semibold text-card-foreground">
+                                {tier.name}
+                              </h6>
+                              {!tier.isActive && (
+                                <span className="px-2 py-0.5 text-xs bg-red-500/10 text-red-600 rounded">Inactive</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-4 mt-1 text-sm text-muted-foreground">
+                              <span>Price: ${parseFloat(tier.pricePerTokenUSDT || 0).toFixed(2)}</span>
+                              <span>ROI: {parseFloat(tier.expectedROI || 0).toFixed(2)}%</span>
+                              <span>Tokens: {parseFloat(tier.totalTokens || 0).toLocaleString()}</span>
+                              {tier.apartmentType && <span>Type: {tier.apartmentType}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => editTokenTier(index)}
+                            className="px-3 py-1.5"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => removeTokenTier(index)}
+                            className="px-3 py-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </Card>
+          )}
 
           {/* Optional Display Information */}
           <Card className="p-6 md:p-8 bg-card/60 backdrop-blur-sm border border-border/40 shadow-sm hover:shadow-lg transition-all duration-300 rounded-xl">
@@ -3006,6 +3642,323 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
             </div>
           </Card>
             </>
+          )}
+
+          {/* Token Tiers Management (Only for existing properties) - Show in Step 3 */}
+          {currentStep === 3 && property && (property.id || property.displayCode) && (
+            <Card className="p-6 md:p-8 bg-card/80 backdrop-blur-sm border border-border/60 shadow-sm hover:shadow-lg transition-all duration-300 rounded-xl">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-border/40">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10">
+                    <Hash className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-card-foreground">
+                      Token Tiers
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">Manage multiple token tiers for this property</p>
+                  </div>
+                </div>
+                {!showTokenForm && (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setShowTokenForm(true);
+                      setEditingToken(null);
+                      setTokenFormData({
+                        name: '',
+                        color: '#CD7F32',
+                        tokenSymbol: '',
+                        pricePerTokenUSDT: '',
+                        totalTokens: '',
+                        expectedROI: '',
+                        apartmentType: '',
+                        apartmentFeatures: {},
+                        description: '',
+                        displayOrder: propertyTokens.length,
+                        isActive: true,
+                      });
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-xl transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Token Tier</span>
+                  </Button>
+                )}
+              </div>
+
+              {showTokenForm ? (
+                <div className="space-y-4 p-4 bg-accent/10 rounded-xl border border-border/40">
+                  <div className="flex items-center justify-between mb-4">
+                    <h5 className="text-base font-semibold text-card-foreground">
+                      {editingToken ? 'Edit Token Tier' : 'Create New Token Tier'}
+                    </h5>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowTokenForm(false);
+                        setEditingToken(null);
+                      }}
+                      className="px-3 py-1.5"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Token Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        value={tokenFormData.name}
+                        onChange={handleTokenFormChange}
+                        placeholder="e.g., Bronze Token"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Token Symbol <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        name="tokenSymbol"
+                        value={tokenFormData.tokenSymbol}
+                        onChange={handleTokenFormChange}
+                        placeholder="e.g., MBT (must be unique)"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl uppercase"
+                        required
+                        maxLength={20}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Color <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          name="color"
+                          value={tokenFormData.color}
+                          onChange={handleTokenFormChange}
+                          className="w-16 h-10 rounded-xl border border-input/70"
+                        />
+                        <input
+                          type="text"
+                          name="color"
+                          value={tokenFormData.color}
+                          onChange={handleTokenFormChange}
+                          placeholder="#CD7F32"
+                          className="flex-1 px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Price per Token (USDT) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="pricePerTokenUSDT"
+                        value={tokenFormData.pricePerTokenUSDT}
+                        onChange={handleTokenFormChange}
+                        placeholder="200.00"
+                        min="0.000001"
+                        step="0.01"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Total Tokens <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="totalTokens"
+                        value={tokenFormData.totalTokens}
+                        onChange={handleTokenFormChange}
+                        placeholder="1000"
+                        min="1"
+                        step="1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Expected ROI (%) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        name="expectedROI"
+                        value={tokenFormData.expectedROI}
+                        onChange={handleTokenFormChange}
+                        placeholder="12.5"
+                        min="0"
+                        step="0.1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Apartment Type
+                      </label>
+                      <input
+                        type="text"
+                        name="apartmentType"
+                        value={tokenFormData.apartmentType}
+                        onChange={handleTokenFormChange}
+                        placeholder="e.g., Studio, 1BR, 2BR"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Display Order
+                      </label>
+                      <input
+                        type="number"
+                        name="displayOrder"
+                        value={tokenFormData.displayOrder}
+                        onChange={handleTokenFormChange}
+                        placeholder="0"
+                        min="0"
+                        step="1"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Description
+                      </label>
+                      <textarea
+                        name="description"
+                        value={tokenFormData.description}
+                        onChange={handleTokenFormChange}
+                        placeholder="Token tier description..."
+                        rows="3"
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        name="isActive"
+                        checked={tokenFormData.isActive}
+                        onChange={handleTokenFormChange}
+                        className="h-4 w-4 text-primary focus:ring-ring border-input rounded"
+                      />
+                      <label className="text-sm text-foreground">Active (available for investment)</label>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      type="button"
+                      onClick={handleCreateToken}
+                      className="flex-1 bg-purple-500 hover:bg-purple-600 text-white"
+                    >
+                      {editingToken ? 'Update Token Tier' : 'Create Token Tier'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowTokenForm(false);
+                        setEditingToken(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {loadingTokens ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p className="text-sm">Loading token tiers...</p>
+                    </div>
+                  ) : propertyTokens.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Hash className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No token tiers created yet</p>
+                      <p className="text-xs mt-1">Add token tiers to enable multi-token investments</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {propertyTokens
+                        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                        .map((token) => (
+                          <div
+                            key={token.id}
+                            className="flex items-center justify-between p-4 bg-accent/10 rounded-xl border border-border/40 hover:border-border/60 transition-all"
+                          >
+                            <div className="flex items-center gap-4 flex-1">
+                              <div
+                                className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm"
+                                style={{ backgroundColor: token.color || '#CD7F32' }}
+                              >
+                                {token.tokenSymbol || token.displayCode}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h6 className="text-base font-semibold text-card-foreground">
+                                    {token.name}
+                                  </h6>
+                                  {!token.isActive && (
+                                    <span className="px-2 py-0.5 text-xs bg-red-500/10 text-red-600 rounded">Inactive</span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-4 mt-1 text-sm text-muted-foreground">
+                                  <span>Price: ${parseFloat(token.pricePerTokenUSDT || 0).toFixed(2)}</span>
+                                  <span>ROI: {parseFloat(token.expectedROI || 0).toFixed(2)}%</span>
+                                  <span>Available: {parseFloat(token.availableTokens || 0).toFixed(0)} / {parseFloat(token.totalTokens || 0).toFixed(0)}</span>
+                                  {token.apartmentType && <span>Type: {token.apartmentType}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleEditToken(token)}
+                                className="px-3 py-1.5"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleDeleteToken(token)}
+                                className="px-3 py-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </Card>
           )}
 
           {/* STEP 3: Features, Media & Settings */}

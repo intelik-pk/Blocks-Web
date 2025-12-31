@@ -70,7 +70,10 @@ export const propertiesAPI = {
   getAll: (params) => api.get('/properties', { params }),
   getFeatured: () => api.get('/properties/featured'),
   getBySlug: (slug) => api.get(`/properties/slug/${slug}`),
-  getById: (id) => api.get(`/properties/${id}`),
+  getById: (id, params) => {
+    const queryParams = params ? { params } : {};
+    return api.get(`/properties/${id}`, queryParams);
+  },
   getStats: (id) => api.get(`/properties/${id}/stats`),
   getFilterOptions: () => api.get('/properties/filter-options'),
   create: (propertyData) => api.post('/properties', propertyData),
@@ -352,7 +355,10 @@ export const adminAPI = {
   
   // Properties CRUD - Use public endpoints as admin endpoints don't exist
   getProperties: (params) => api.get('/properties', { params }),
-  getProperty: (id) => api.get(`/properties/${id}`),
+  getProperty: (id, params) => {
+    const queryParams = params ? { params } : {};
+    return api.get(`/properties/${id}`, queryParams);
+  },
   getPropertyDetail: (id) => api.get(`/properties/${id}`), // Use regular endpoint
   createProperty: (data) => api.post('/properties', data),
   updateProperty: (id, data) => api.patch(`/properties/${id}`, data), // PATCH for full property updates
@@ -384,6 +390,10 @@ export const adminAPI = {
   getBankWithdrawal: (id) => api.get(`/admin/bank-withdrawals/${id}`), // GET /admin/bank-withdrawals/:id
   completeBankWithdrawal: (id, data) => api.patch(`/admin/bank-withdrawals/${id}/complete`, data), // PATCH /admin/bank-withdrawals/:id/complete
   rejectBankWithdrawal: (id, data) => api.patch(`/admin/bank-withdrawals/${id}/reject`, data), // PATCH /admin/bank-withdrawals/:id/reject
+  // Marketplace API
+  getMarketplaceListings: (params) => api.get('/api/marketplace/listings', { params }), // GET /api/marketplace/listings
+  getMarketplaceListing: (id) => api.get(`/api/marketplace/listings/${id}`), // GET /api/marketplace/listings/:id
+  cancelMarketplaceListing: (id) => api.delete(`/api/marketplace/listings/${id}`), // DELETE /api/marketplace/listings/:id (admin can cancel any listing)
   
   // Settings
   getBankAccountSettings: () => api.get('/admin/settings/bank-account'), // GET /admin/settings/bank-account
@@ -414,6 +424,27 @@ export const activitiesAPI = {
   getAll: (params) => api.get('/activities', { params }), // GET /activities?userType=all&limit=50&offset=0
   getCount: (userType) => api.get('/activities/count', { params: { userType } }), // GET /activities/count?userType=all
   deleteAll: () => api.delete('/activities'), // DELETE /activities - Delete all activities
+};
+
+// Property Tokens API (Multi-Token Feature)
+export const propertyTokensAPI = {
+  // Create token tier for a property
+  create: (tokenData) => api.post('/property-tokens', tokenData),
+  
+  // Get all tokens for a property
+  getByProperty: (propertyId, includeInactive = false) => 
+    api.get(`/property-tokens/property/${propertyId}`, { 
+      params: { includeInactive } 
+    }),
+  
+  // Get single token by ID or displayCode
+  getById: (idOrCode) => api.get(`/property-tokens/${idOrCode}`),
+  
+  // Update token
+  update: (idOrCode, tokenData) => api.patch(`/property-tokens/${idOrCode}`, tokenData),
+  
+  // Delete token
+  delete: (idOrCode) => api.delete(`/property-tokens/${idOrCode}`),
 };
 
 // Property Requests API

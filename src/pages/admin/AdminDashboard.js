@@ -49,6 +49,8 @@ import KYCManagement from './KYCManagement';
 import NotificationsManagement from './NotificationsManagement';
 import BankTransferRequests from './BankTransferRequests';
 import BankWithdrawalRequests from './BankWithdrawalRequests';
+import MarketplaceManagement from './MarketplaceManagement';
+import CertificatesManagement from './CertificatesManagement';
 import Loader from '../../components/Loder';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -58,7 +60,7 @@ const AdminDashboard = () => {
   const location = useLocation();
   const { theme } = useTheme();
   
-  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'bank-withdrawals', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
+  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'bank-withdrawals', 'marketplace', 'transactions', 'investments', 'certificates', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
   
   // Read initial tab from URL synchronously during render
   // Always use window.location.search for initial render to ensure we get the actual URL on refresh
@@ -1707,10 +1709,14 @@ const AdminDashboard = () => {
         return <BankTransferRequests initialFilters={tabFilters['bank-transfers']} onFiltersSet={() => setTabFilters({ ...tabFilters, 'bank-transfers': undefined })} />;
       case 'bank-withdrawals':
         return <BankWithdrawalRequests initialFilters={tabFilters['bank-withdrawals']} onFiltersSet={() => setTabFilters({ ...tabFilters, 'bank-withdrawals': undefined })} />;
+      case 'marketplace':
+        return <MarketplaceManagement initialFilters={tabFilters.marketplace} onFiltersSet={() => setTabFilters({ ...tabFilters, marketplace: undefined })} />;
       case 'transactions':
         return <TransactionsManagement initialFilters={tabFilters.transactions} onFiltersSet={() => setTabFilters({ ...tabFilters, transactions: undefined })} />;
       case 'investments':
         return <InvestmentsManagement />;
+      case 'certificates':
+        return <CertificatesManagement />;
       case 'organizations':
         return <OrganizationsManagement />;
       case 'tokens':
