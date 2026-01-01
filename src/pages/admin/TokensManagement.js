@@ -2489,6 +2489,10 @@ const TokensManagement = () => {
                       )));
                       startDate = earliestDate;
                       break;
+                    default:
+                      // Default to 30 days if unknown range
+                      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                      break;
                   }
                   
                   // Group investments by date and calculate cumulative tokens

@@ -126,6 +126,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     displayOrder: 0,
     isActive: true,
   });
+  const [tokenTierValidationError, setTokenTierValidationError] = useState('');
 
   // Token Tier Management State (for existing property)
   const [propertyTokens, setPropertyTokens] = useState([]);
@@ -742,6 +743,13 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
         ...prev,
         [name]: type === 'checkbox' ? checked : value
       };
+
+      // Re-validate token tiers when property totalTokens changes
+      if (name === 'totalTokens' && showTokenTierForm && tokenTierFormData.totalTokens) {
+        setTimeout(() => {
+          validateTokenTierCount(tokenTierFormData.totalTokens);
+        }, 0);
+      }
 
       // Auto-sync pricing_total_value from totalValueUSDT
       if (name === 'totalValueUSDT' && value) {
@@ -1806,11 +1814,61 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+
+    // Real-time validation for totalTokens field
+    if (name === 'totalTokens') {
+      validateTokenTierCount(value);
+    }
+  };
+
+  // Validate token tier count against property total tokens
+  const validateTokenTierCount = (newTokenCount) => {
+    const propertyTotalTokens = parseFloat(formData.totalTokens) || 0;
+    
+    if (!propertyTotalTokens || propertyTotalTokens <= 0) {
+      setTokenTierValidationError('Please set Total Tokens for the property first.');
+      return false;
+    }
+
+    const newCount = parseFloat(newTokenCount) || 0;
+    if (newCount <= 0) {
+      setTokenTierValidationError('');
+      return true; // Allow empty/zero while typing
+    }
+
+    // Calculate sum of all other tiers (excluding the one being edited)
+    const otherTiersSum = tokenTiers.reduce((sum, tier, index) => {
+      if (editingTierIndex !== null && index === editingTierIndex) {
+        return sum; // Skip the tier being edited
+      }
+      return sum + (parseFloat(tier.totalTokens) || 0);
+    }, 0);
+
+    const totalWithNewTier = otherTiersSum + newCount;
+
+    if (totalWithNewTier > propertyTotalTokens) {
+      const remaining = propertyTotalTokens - otherTiersSum;
+      setTokenTierValidationError(
+        `Total tokens (${totalWithNewTier.toLocaleString()}) exceeds property limit (${propertyTotalTokens.toLocaleString()}). ` +
+        `Remaining available: ${remaining > 0 ? remaining.toLocaleString() : 0} tokens.`
+      );
+      return false;
+    } else {
+      setTokenTierValidationError('');
+      return true;
+    }
   };
 
   const addTokenTier = () => {
     if (!tokenTierFormData.name || !tokenTierFormData.tokenSymbol || !tokenTierFormData.pricePerTokenUSDT || !tokenTierFormData.totalTokens || !tokenTierFormData.expectedROI) {
       toast.error('Please fill in all required fields (Name, Symbol, Price, Tokens, ROI)');
+      return;
+    }
+
+    // Validate token count before adding/updating
+    const isValid = validateTokenTierCount(tokenTierFormData.totalTokens);
+    if (!isValid) {
+      toast.error('Cannot add token tier: Total tokens exceed property limit. Please adjust the number of tokens.');
       return;
     }
 
@@ -1848,6 +1906,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       displayOrder: tokenTiers.length + 1,
       isActive: true,
     });
+    setTokenTierValidationError('');
     setShowTokenTierForm(false);
   };
 
@@ -1867,7 +1926,12 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       isActive: tier.isActive !== undefined ? tier.isActive : true,
     });
     setEditingTierIndex(index);
+    setTokenTierValidationError(''); // Reset validation error when opening edit form
     setShowTokenTierForm(true);
+    // Validate the existing value when editing
+    if (tier.totalTokens) {
+      validateTokenTierCount(tier.totalTokens);
+    }
   };
 
   const removeTokenTier = (index) => {
@@ -2723,6 +2787,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                       onClick={() => {
                         setShowTokenTierForm(false);
                         setEditingTierIndex(null);
+                        setTokenTierValidationError('');
                       }}
                       className="px-3 py-1.5"
                     >
@@ -2815,9 +2880,38 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                         placeholder="1000"
                         min="1"
                         step="1"
-                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        className={`w-full px-4 py-2 text-sm border rounded-xl ${
+                          tokenTierValidationError 
+                            ? 'border-red-500 bg-red-50/10 focus:ring-red-500 focus:border-red-500' 
+                            : 'border-input/70 bg-card/50 focus:ring-primary/30 focus:border-primary'
+                        } text-card-foreground`}
                         required
                       />
+                      {tokenTierValidationError && (
+                        <p className="text-red-500 text-xs mt-1.5 flex items-start gap-1.5">
+                          <span>⚠️</span>
+                          <span>{tokenTierValidationError}</span>
+                        </p>
+                      )}
+                      {!tokenTierValidationError && tokenTierFormData.totalTokens && formData.totalTokens && (
+                        (() => {
+                          const otherTiersSum = tokenTiers.reduce((sum, tier, index) => {
+                            if (editingTierIndex !== null && index === editingTierIndex) {
+                              return sum;
+                            }
+                            return sum + (parseFloat(tier.totalTokens) || 0);
+                          }, 0);
+                          const currentCount = parseFloat(tokenTierFormData.totalTokens) || 0;
+                          const totalUsed = otherTiersSum + currentCount;
+                          const remaining = (parseFloat(formData.totalTokens) || 0) - totalUsed;
+                          return remaining >= 0 ? (
+                            <p className="text-green-500 text-xs mt-1.5 flex items-start gap-1.5">
+                              <span>✓</span>
+                              <span>Remaining: {remaining.toLocaleString()} tokens available</span>
+                            </p>
+                          ) : null;
+                        })()
+                      )}
                     </div>
 
                     <div>
@@ -2897,6 +2991,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                     <Button
                       type="button"
                       onClick={addTokenTier}
+                      disabled={!!tokenTierValidationError}
                       className="flex-1 bg-purple-500 hover:bg-purple-600 text-white"
                     >
                       {editingTierIndex !== null ? 'Update Token Tier' : 'Add Token Tier'}
@@ -2907,6 +3002,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                       onClick={() => {
                         setShowTokenTierForm(false);
                         setEditingTierIndex(null);
+                        setTokenTierValidationError('');
                       }}
                     >
                       Cancel
