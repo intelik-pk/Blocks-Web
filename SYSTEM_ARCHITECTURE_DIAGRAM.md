@@ -45,7 +45,7 @@
 │  │  │ AuthContext  │  │ UserContext  │  │ ThemeContext │   │    │
 │  │  │              │  │              │  │              │   │    │
 │  │  │ - user       │  │ - currentUser│  │ - theme      │   │    │
-│  │  │ - token      │  │ - users      │  │ - toggleTheme│   │    │
+│  │  │ - token      │  │ - users      │  │ -toggleTheme│   │    │
 │  │  │ - login()    │  │ - switchUser │  │              │   │    │
 │  │  │ - logout()   │  │              │  │              │   │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘   │    │
