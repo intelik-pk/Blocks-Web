@@ -117,7 +117,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     name: '',
     color: '#CD7F32',
     tokenSymbol: '',
-    pricePerTokenUSDT: '',
+    totalValueUSDT: '', // Total value of the tier (input field)
     totalTokens: '',
     expectedROI: '',
     apartmentType: '',
@@ -127,6 +127,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     isActive: true,
   });
   const [tokenTierValidationError, setTokenTierValidationError] = useState('');
+  const [tokenTierValueValidationError, setTokenTierValueValidationError] = useState('');
 
   // Token Tier Management State (for existing property)
   const [propertyTokens, setPropertyTokens] = useState([]);
@@ -751,6 +752,13 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
         }, 0);
       }
 
+      // Re-validate token tiers when property totalValueUSDT changes
+      if (name === 'totalValueUSDT' && showTokenTierForm && tokenTierFormData.totalValueUSDT) {
+        setTimeout(() => {
+          validateTokenTierValue(tokenTierFormData.totalValueUSDT);
+        }, 0);
+      }
+
       // Auto-sync pricing_total_value from totalValueUSDT
       if (name === 'totalValueUSDT' && value) {
         const totalValue = parseFloat(value);
@@ -935,10 +943,29 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
         validationErrors.push('At least one token tier is required');
       }
       tokenTiers.forEach((tier, index) => {
-        if (!tier.name || !tier.tokenSymbol || !tier.pricePerTokenUSDT || !tier.totalTokens || !tier.expectedROI) {
+        // Check for either totalValueUSDT (new format) or pricePerTokenUSDT (old format)
+        const hasValue = tier.totalValueUSDT !== undefined || tier.pricePerTokenUSDT !== undefined;
+        if (!tier.name || !tier.tokenSymbol || !hasValue || !tier.totalTokens || !tier.expectedROI) {
           validationErrors.push(`Token tier ${index + 1} is missing required fields`);
         }
       });
+
+      // Validate that tier values sum to property totalValueUSDT
+      if (tokenTiers.length > 0) {
+        const totalValueFromTiers = tokenTiers.reduce((sum, tier) => {
+          // Calculate tier value: use totalValueUSDT if available, otherwise calculate from pricePerTokenUSDT
+          const tierValue = tier.totalValueUSDT !== undefined 
+            ? (parseFloat(tier.totalValueUSDT) || 0)
+            : (parseFloat(tier.pricePerTokenUSDT) || 0) * (parseFloat(tier.totalTokens) || 0);
+          return sum + tierValue;
+        }, 0);
+        const propertyTotalValue = parseFloat(formData.totalValueUSDT) || 0;
+        if (propertyTotalValue > 0 && Math.abs(totalValueFromTiers - propertyTotalValue) > 0.01) {
+          validationErrors.push(
+            `Token tier total value (${totalValueFromTiers.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) must equal property total value (${propertyTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+          );
+        }
+      }
     } else {
       // Legacy: require totalTokens and expectedROI if no token tiers
       if (!formData.totalTokens || parseInt(formData.totalTokens) <= 0) {
@@ -1272,6 +1299,21 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       const totalTokensFromTiers = tokenTiers.reduce((sum, tier) => sum + (parseFloat(tier.totalTokens) || 0), 0);
       if (totalTokensFromTiers <= 0) {
         finalValidationErrors.push('Token tiers must have at least one token');
+      }
+      
+      // Validate that tier values sum to property totalValueUSDT
+      const totalValueFromTiers = tokenTiers.reduce((sum, tier) => {
+        // Calculate tier value: use totalValueUSDT if available, otherwise calculate from pricePerTokenUSDT
+        const tierValue = tier.totalValueUSDT !== undefined 
+          ? (parseFloat(tier.totalValueUSDT) || 0)
+          : (parseFloat(tier.pricePerTokenUSDT) || 0) * (parseFloat(tier.totalTokens) || 0);
+        return sum + tierValue;
+      }, 0);
+      const propertyTotalValue = parseFloat(dataToSend.totalValueUSDT) || 0;
+      if (propertyTotalValue > 0 && Math.abs(totalValueFromTiers - propertyTotalValue) > 0.01) {
+        finalValidationErrors.push(
+          `Token tier total value (${totalValueFromTiers.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) must equal property total value (${propertyTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+        );
       }
     } else {
       if (!dataToSend.totalTokens || dataToSend.totalTokens <= 0) finalValidationErrors.push('Total Tokens must be greater than 0 (or add token tiers)');
@@ -1819,6 +1861,11 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     if (name === 'totalTokens') {
       validateTokenTierCount(value);
     }
+
+    // Real-time validation for totalValueUSDT field
+    if (name === 'totalValueUSDT') {
+      validateTokenTierValue(value);
+    }
   };
 
   // Validate token tier count against property total tokens
@@ -1859,24 +1906,80 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     }
   };
 
+  // Validate token tier value against property total value
+  const validateTokenTierValue = (newTierValue) => {
+    const propertyTotalValue = parseFloat(formData.totalValueUSDT) || 0;
+    
+    if (!propertyTotalValue || propertyTotalValue <= 0) {
+      setTokenTierValueValidationError('Please set Total Value (USDT) for the property first.');
+      return false;
+    }
+
+    const newValue = parseFloat(newTierValue) || 0;
+    if (newValue <= 0) {
+      setTokenTierValueValidationError('');
+      return true; // Allow empty/zero while typing
+    }
+
+    // Calculate sum of all other tiers' total values (excluding the one being edited)
+    // For existing tiers, calculate totalValue from pricePerTokenUSDT * totalTokens
+    const otherTiersSum = tokenTiers.reduce((sum, tier, index) => {
+      if (editingTierIndex !== null && index === editingTierIndex) {
+        return sum; // Skip the tier being edited
+      }
+      // If tier has totalValueUSDT (new format), use it; otherwise calculate from pricePerTokenUSDT
+      const tierValue = tier.totalValueUSDT !== undefined 
+        ? (parseFloat(tier.totalValueUSDT) || 0)
+        : (parseFloat(tier.pricePerTokenUSDT) || 0) * (parseFloat(tier.totalTokens) || 0);
+      return sum + tierValue;
+    }, 0);
+
+    const totalWithNewTier = otherTiersSum + newValue;
+
+    if (totalWithNewTier > propertyTotalValue) {
+      const remaining = propertyTotalValue - otherTiersSum;
+      setTokenTierValueValidationError(
+        `Total value (${totalWithNewTier.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) exceeds property limit (${propertyTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). ` +
+        `Remaining available: ${remaining > 0 ? remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 0} USDT.`
+      );
+      return false;
+    } else {
+      setTokenTierValueValidationError('');
+      return true;
+    }
+  };
+
   const addTokenTier = () => {
-    if (!tokenTierFormData.name || !tokenTierFormData.tokenSymbol || !tokenTierFormData.pricePerTokenUSDT || !tokenTierFormData.totalTokens || !tokenTierFormData.expectedROI) {
-      toast.error('Please fill in all required fields (Name, Symbol, Price, Tokens, ROI)');
+    if (!tokenTierFormData.name || !tokenTierFormData.tokenSymbol || !tokenTierFormData.totalValueUSDT || !tokenTierFormData.totalTokens || !tokenTierFormData.expectedROI) {
+      toast.error('Please fill in all required fields (Name, Symbol, Total Value, Tokens, ROI)');
       return;
     }
 
     // Validate token count before adding/updating
-    const isValid = validateTokenTierCount(tokenTierFormData.totalTokens);
-    if (!isValid) {
+    const isValidCount = validateTokenTierCount(tokenTierFormData.totalTokens);
+    if (!isValidCount) {
       toast.error('Cannot add token tier: Total tokens exceed property limit. Please adjust the number of tokens.');
       return;
     }
 
+    // Validate USDT value before adding/updating
+    const isValidValue = validateTokenTierValue(tokenTierFormData.totalValueUSDT);
+    if (!isValidValue) {
+      toast.error('Cannot add token tier: Total value exceeds property limit. Please adjust the total value.');
+      return;
+    }
+
+    // Calculate price per token from total value and total tokens
+    const totalValue = parseFloat(tokenTierFormData.totalValueUSDT);
+    const totalTokens = parseFloat(tokenTierFormData.totalTokens);
+    const pricePerToken = totalTokens > 0 ? (totalValue / totalTokens) : 0;
+
     const newTier = {
       ...tokenTierFormData,
       tokenSymbol: tokenTierFormData.tokenSymbol.toUpperCase(),
-      pricePerTokenUSDT: parseFloat(tokenTierFormData.pricePerTokenUSDT),
-      totalTokens: parseFloat(tokenTierFormData.totalTokens),
+      totalValueUSDT: totalValue, // Store total value for validation
+      pricePerTokenUSDT: pricePerToken, // Calculate and store for backend
+      totalTokens: totalTokens,
       expectedROI: parseFloat(tokenTierFormData.expectedROI),
       displayOrder: tokenTiers.length,
     };
@@ -1897,7 +2000,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       name: '',
       color: '#CD7F32',
       tokenSymbol: '',
-      pricePerTokenUSDT: '',
+      totalValueUSDT: '',
       totalTokens: '',
       expectedROI: '',
       apartmentType: '',
@@ -1907,16 +2010,22 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       isActive: true,
     });
     setTokenTierValidationError('');
+    setTokenTierValueValidationError('');
     setShowTokenTierForm(false);
   };
 
   const editTokenTier = (index) => {
     const tier = tokenTiers[index];
+    // Calculate totalValueUSDT from pricePerTokenUSDT * totalTokens if not already stored
+    const totalValueUSDT = tier.totalValueUSDT !== undefined 
+      ? tier.totalValueUSDT 
+      : (parseFloat(tier.pricePerTokenUSDT) || 0) * (parseFloat(tier.totalTokens) || 0);
+    
     setTokenTierFormData({
       name: tier.name || '',
       color: tier.color || '#CD7F32',
       tokenSymbol: tier.tokenSymbol || '',
-      pricePerTokenUSDT: tier.pricePerTokenUSDT || '',
+      totalValueUSDT: totalValueUSDT > 0 ? totalValueUSDT.toString() : '',
       totalTokens: tier.totalTokens || '',
       expectedROI: tier.expectedROI || '',
       apartmentType: tier.apartmentType || '',
@@ -1927,10 +2036,14 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     });
     setEditingTierIndex(index);
     setTokenTierValidationError(''); // Reset validation error when opening edit form
+    setTokenTierValueValidationError(''); // Reset value validation error
     setShowTokenTierForm(true);
-    // Validate the existing value when editing
+    // Validate the existing values when editing
     if (tier.totalTokens) {
       validateTokenTierCount(tier.totalTokens);
+    }
+    if (totalValueUSDT > 0) {
+      validateTokenTierValue(totalValueUSDT.toString());
     }
   };
 
@@ -2757,7 +2870,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                         name: '',
                         color: '#CD7F32',
                         tokenSymbol: '',
-                        pricePerTokenUSDT: '',
+                        totalValueUSDT: '',
                         totalTokens: '',
                         expectedROI: '',
                         apartmentType: '',
@@ -2788,6 +2901,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                         setShowTokenTierForm(false);
                         setEditingTierIndex(null);
                         setTokenTierValidationError('');
+                        setTokenTierValueValidationError('');
                       }}
                       className="px-3 py-1.5"
                     >
@@ -2853,19 +2967,53 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
 
                     <div>
                       <label className="block text-sm font-semibold text-foreground mb-2">
-                        Price per Token (USDT) <span className="text-red-500">*</span>
+                        Total Value of Tier (USDT) <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
-                        name="pricePerTokenUSDT"
-                        value={tokenTierFormData.pricePerTokenUSDT}
+                        name="totalValueUSDT"
+                        value={tokenTierFormData.totalValueUSDT}
                         onChange={handleTokenTierFormChange}
-                        placeholder="200.00"
-                        min="0.000001"
+                        placeholder="200000.00"
+                        min="0.01"
                         step="0.01"
-                        className="w-full px-4 py-2 text-sm border border-input/70 bg-card/50 text-card-foreground rounded-xl"
+                        className={`w-full px-4 py-2 text-sm border rounded-xl ${
+                          tokenTierValueValidationError 
+                            ? 'border-red-500 bg-red-50/10 focus:ring-red-500 focus:border-red-500' 
+                            : 'border-input/70 bg-card/50 focus:ring-primary/30 focus:border-primary'
+                        } text-card-foreground`}
                         required
                       />
+                      {tokenTierValueValidationError && (
+                        <p className="text-red-500 text-xs mt-1.5 flex items-start gap-1.5">
+                          <span>⚠️</span>
+                          <span>{tokenTierValueValidationError}</span>
+                        </p>
+                      )}
+                      {!tokenTierValueValidationError && tokenTierFormData.totalValueUSDT && formData.totalValueUSDT && (
+                        (() => {
+                          // Calculate sum of all other tiers' values (excluding the one being edited)
+                          const otherTiersSum = tokenTiers.reduce((sum, tier, index) => {
+                            if (editingTierIndex !== null && index === editingTierIndex) {
+                              return sum;
+                            }
+                            // Calculate tier value: use totalValueUSDT if available, otherwise calculate from pricePerTokenUSDT
+                            const tierValue = tier.totalValueUSDT !== undefined 
+                              ? (parseFloat(tier.totalValueUSDT) || 0)
+                              : (parseFloat(tier.pricePerTokenUSDT) || 0) * (parseFloat(tier.totalTokens) || 0);
+                            return sum + tierValue;
+                          }, 0);
+                          const currentValue = parseFloat(tokenTierFormData.totalValueUSDT) || 0;
+                          const totalUsed = otherTiersSum + currentValue;
+                          const remaining = (parseFloat(formData.totalValueUSDT) || 0) - totalUsed;
+                          return remaining >= 0 ? (
+                            <p className="text-green-500 text-xs mt-1.5 flex items-start gap-1.5">
+                              <span>✓</span>
+                              <span>Remaining: {remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT available</span>
+                            </p>
+                          ) : null;
+                        })()
+                      )}
                     </div>
 
                     <div>
@@ -2912,6 +3060,25 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                           ) : null;
                         })()
                       )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-foreground mb-2">
+                        Price per Token (USDT) <span className="text-xs text-primary ml-1">(Auto-calculated)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={
+                          tokenTierFormData.totalValueUSDT && tokenTierFormData.totalTokens
+                            ? (parseFloat(tokenTierFormData.totalValueUSDT) / parseFloat(tokenTierFormData.totalTokens)).toFixed(6)
+                            : '0.00'
+                        }
+                        readOnly
+                        className="w-full px-4 py-2 text-sm border border-input/70 bg-accent/50 text-card-foreground rounded-xl cursor-not-allowed"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Calculated from: Total Value ÷ Number of Tokens
+                      </p>
                     </div>
 
                     <div>
@@ -2991,7 +3158,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                     <Button
                       type="button"
                       onClick={addTokenTier}
-                      disabled={!!tokenTierValidationError}
+                      disabled={!!tokenTierValidationError || !!tokenTierValueValidationError}
                       className="flex-1 bg-purple-500 hover:bg-purple-600 text-white"
                     >
                       {editingTierIndex !== null ? 'Update Token Tier' : 'Add Token Tier'}
@@ -3043,10 +3210,29 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                               )}
                             </div>
                             <div className="flex flex-wrap gap-4 mt-1 text-sm text-muted-foreground">
-                              <span>Price: ${parseFloat(tier.pricePerTokenUSDT || 0).toFixed(2)}</span>
-                              <span>ROI: {parseFloat(tier.expectedROI || 0).toFixed(2)}%</span>
-                              <span>Tokens: {parseFloat(tier.totalTokens || 0).toLocaleString()}</span>
-                              {tier.apartmentType && <span>Type: {tier.apartmentType}</span>}
+                              {(() => {
+                                // Calculate price per token: use stored pricePerTokenUSDT or calculate from totalValueUSDT
+                                const pricePerToken = tier.pricePerTokenUSDT !== undefined
+                                  ? parseFloat(tier.pricePerTokenUSDT)
+                                  : (tier.totalValueUSDT && tier.totalTokens 
+                                      ? parseFloat(tier.totalValueUSDT) / parseFloat(tier.totalTokens)
+                                      : 0);
+                                // Calculate total value: use totalValueUSDT or calculate from pricePerTokenUSDT
+                                const totalValue = tier.totalValueUSDT !== undefined
+                                  ? parseFloat(tier.totalValueUSDT)
+                                  : (tier.pricePerTokenUSDT && tier.totalTokens
+                                      ? parseFloat(tier.pricePerTokenUSDT) * parseFloat(tier.totalTokens)
+                                      : 0);
+                                return (
+                                  <>
+                                    <span>Total Value: ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    <span>Price/Token: ${pricePerToken.toFixed(2)}</span>
+                                    <span>ROI: {parseFloat(tier.expectedROI || 0).toFixed(2)}%</span>
+                                    <span>Tokens: {parseFloat(tier.totalTokens || 0).toLocaleString()}</span>
+                                    {tier.apartmentType && <span>Type: {tier.apartmentType}</span>}
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>

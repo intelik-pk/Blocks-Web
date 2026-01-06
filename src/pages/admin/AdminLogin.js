@@ -70,8 +70,8 @@ const AdminLogin = () => {
 
   const handleDemoLogin = () => {
     setFormData({
-      email: 'admin@blocks.com',
-      password: 'Admin@123',
+      email: 'robasahmedshah@gmail.com',
+      password: 'Robas123',
     });
   };
 
@@ -206,7 +206,7 @@ const AdminLogin = () => {
             {/* Demo Creds */}
             <p className="text-xs text-center tracking-wide
                           text-slate-500 dark:text-slate-400">
-              admin@blocks.com • Admin@123
+              robasahmedshah@gmail.com • Robas123
             </p>
             
             {/* Signup Link */}
