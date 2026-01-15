@@ -7,7 +7,7 @@
 
 **Solution**:
 - Updated `InvestmentChart.js` to fetch from `/investments` API endpoint
-- Uses `adminAPI.getInvestments()` to get all investments
+- Uses `adminAPI.getInvestments()` to get all investmentss
 - Processes investment data and groups by date
 - Shows investment volume over time
 - Falls back to sample data if API returns no data
