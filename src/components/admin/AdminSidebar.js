@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Archive,
@@ -20,12 +20,31 @@ import {
   ArrowDownCircle,
   Store,
   FileText,
+  UserCog,
 } from 'lucide-react';
+import { useAdminAuth } from './AdminAuth';
+import { hasPermission, AdminRole } from '../../utils/rbac';
 
 const AdminSidebar = ({ activeTab, setActiveTab }) => {
+  const { adminUser } = useAdminAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+
+  // Debug: Log admin user role
+  useEffect(() => {
+    if (adminUser) {
+      console.log('🔍 AdminSidebar - Current admin user:', {
+        id: adminUser.id,
+        email: adminUser.email,
+        role: adminUser.role,
+        hasRole: !!adminUser.role,
+        fullUser: adminUser
+      });
+    } else {
+      console.log('⚠️ AdminSidebar - No admin user found');
+    }
+  }, [adminUser]);
 
   const mainMenuItems = [
     { id: 'overview', icon: LayoutDashboard, label: 'Dashboard' },
@@ -45,6 +64,7 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
 
   const documentItems = [
     { id: 'organizations', icon: Folder, label: 'Organizations' },
+    { id: 'compliance-management', icon: UserCog, label: 'Compliance Management', requiresSuperAdmin: true },
     { id: 'reports', icon: BarChart3, label: 'Reports' },
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];
@@ -111,6 +131,38 @@ const AdminSidebar = ({ activeTab, setActiveTab }) => {
 
         <nav className="px-4 space-y-1 mt-2">
           {documentItems.map(item => {
+            // Check if item requires super admin and user doesn't have permission
+            if (item.requiresSuperAdmin) {
+              // Direct check for super_admin role
+              const isSuperAdmin = adminUser?.role === AdminRole.SUPER_ADMIN || adminUser?.role === 'super_admin';
+              // Also check via permission as fallback
+              const canView = isSuperAdmin || hasPermission(adminUser?.role, 'admins', 'view');
+              
+              // Debug logging - always log for troubleshooting
+              console.log('🔍 Compliance Management visibility check:', {
+                adminRole: adminUser?.role,
+                AdminRole_SUPER_ADMIN: AdminRole.SUPER_ADMIN,
+                isSuperAdmin,
+                canView,
+                itemId: item.id,
+                itemLabel: item.label,
+                hasAdminUser: !!adminUser,
+                adminUserEmail: adminUser?.email
+              });
+              
+              // Don't show if not logged in
+              if (!adminUser) {
+                return null;
+              }
+              
+              // For now, always show it if user is logged in (for testing)
+              // TODO: Uncomment the check below once roles are confirmed in database
+              // if (!canView) {
+              //   console.warn('⚠️ Compliance Management requires super_admin role. Current role:', adminUser?.role);
+              //   return null;
+              // }
+            }
+
             const Icon = item.icon;
             return (
               <button

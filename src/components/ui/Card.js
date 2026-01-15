@@ -11,18 +11,18 @@ const Card = ({
   const variantStyles = {
     primary: {
       // Main content cards - subtle blue gradient
-      base: 'bg-white/5 dark:bg-black/20 backdrop-blur-xl border border-white/20 dark:border-white/10',
-      gradient: 'bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 dark:from-blue-500/10 dark:via-transparent dark:to-purple-500/10',
+      base: 'bg-white dark:bg-black/20 backdrop-blur-xl border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-lg',
+      gradient: 'bg-gradient-to-br from-blue-50/50 via-transparent to-purple-50/50 dark:from-blue-500/10 dark:via-transparent dark:to-purple-500/10',
     },
     secondary: {
       // Action panels, modals, expanded content - subtle purple/pink gradient
-      base: 'bg-white/10 dark:bg-black/30 backdrop-blur-xl border border-white/30 dark:border-white/15',
-      gradient: 'bg-gradient-to-br from-purple-500/10 via-transparent to-pink-500/10 dark:from-purple-500/15 dark:via-transparent dark:to-pink-500/15',
+      base: 'bg-white dark:bg-black/30 backdrop-blur-xl border border-gray-200 dark:border-white/15 shadow-md dark:shadow-lg',
+      gradient: 'bg-gradient-to-br from-purple-50/50 via-transparent to-pink-50/50 dark:from-purple-500/15 dark:via-transparent dark:to-pink-500/15',
     },
     tertiary: {
       // Nested cards, sub-sections - subtle green gradient
-      base: 'bg-white/5 dark:bg-black/20 backdrop-blur-xl border border-white/15 dark:border-white/8',
-      gradient: 'bg-gradient-to-br from-green-500/5 via-transparent to-emerald-500/5 dark:from-green-500/10 dark:via-transparent dark:to-emerald-500/10',
+      base: 'bg-white dark:bg-black/20 backdrop-blur-xl border border-gray-200 dark:border-white/8 shadow-sm dark:shadow-md',
+      gradient: 'bg-gradient-to-br from-green-50/50 via-transparent to-emerald-50/50 dark:from-green-500/10 dark:via-transparent dark:to-emerald-500/10',
     },
   };
 

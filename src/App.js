@@ -19,6 +19,7 @@ import KYCStatus from './pages/user/KYCStatus';
 import KYCUpload from './pages/user/KYCUpload';
 import KYCDetails from './pages/user/KYCDetails';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import ComplianceDashboard from './pages/admin/ComplianceDashboard';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminSignup from './pages/admin/AdminSignup';
 import AdminPropertyDetail from './pages/admin/PropertyDetail';
@@ -86,6 +87,11 @@ function App() {
                 <Route path="/admin" element={
                   <AdminAuthProvider>
                     <AdminDashboard />
+                  </AdminAuthProvider>
+                } />
+                <Route path="/admin/compliance" element={
+                  <AdminAuthProvider>
+                    <ComplianceDashboard />
                   </AdminAuthProvider>
                 } />
                 <Route path="/admin/property/:propertyId" element={

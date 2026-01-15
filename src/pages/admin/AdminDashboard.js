@@ -51,8 +51,10 @@ import BankTransferRequests from './BankTransferRequests';
 import BankWithdrawalRequests from './BankWithdrawalRequests';
 import MarketplaceManagement from './MarketplaceManagement';
 import CertificatesManagement from './CertificatesManagement';
+import AdminManagement from './AdminManagement';
 import Loader from '../../components/Loder';
 import { useTheme } from '../../contexts/ThemeContext';
+import { AdminRole } from '../../utils/rbac';
 
 const AdminDashboard = () => {
   const { adminUser, isAuthenticated, logout } = useAdminAuth();
@@ -60,7 +62,23 @@ const AdminDashboard = () => {
   const location = useLocation();
   const { theme } = useTheme();
   
-  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'bank-withdrawals', 'marketplace', 'transactions', 'investments', 'certificates', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'];
+  const validTabs = ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'bank-withdrawals', 'marketplace', 'transactions', 'investments', 'certificates', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings', 'compliance-management'];
+  
+  // Redirect compliance roles to compliance dashboard
+  useEffect(() => {
+    if (isAuthenticated && adminUser) {
+      const role = adminUser.role;
+      const isComplianceRole = role === AdminRole.MLRO || 
+                              role === AdminRole.AUDIT_MANAGER || 
+                              role === AdminRole.COMPLIANCE_OFFICER;
+      
+      if (isComplianceRole) {
+        // Compliance roles should not access regular admin dashboard
+        navigate('/admin/compliance', { replace: true });
+        return;
+      }
+    }
+  }, [isAuthenticated, adminUser, navigate]);
   
   // Read initial tab from URL synchronously during render
   // Always use window.location.search for initial render to ensure we get the actual URL on refresh
@@ -119,7 +137,7 @@ const AdminDashboard = () => {
     const searchString = typeof window !== 'undefined' ? window.location.search : location.search;
     const urlParams = new URLSearchParams(searchString);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings'].includes(tabParam)) {
+    if (tabParam && ['overview', 'properties', 'property-requests', 'users', 'bank-transfers', 'transactions', 'investments', 'organizations', 'tokens', 'reports', 'kyc', 'notifications', 'settings', 'compliance-management'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1719,6 +1737,8 @@ const AdminDashboard = () => {
         return <CertificatesManagement />;
       case 'organizations':
         return <OrganizationsManagement />;
+      case 'compliance-management':
+        return <AdminManagement />;
       case 'tokens':
         return <TokensManagement />;
       case 'reports':

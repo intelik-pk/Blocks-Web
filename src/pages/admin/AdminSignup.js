@@ -68,18 +68,26 @@ const AdminSignup = () => {
 
       // Auto-login after successful signup
       setTimeout(() => {
-        login({
+        const userData = {
           id: adminData.id,
           userId: adminData.id,
           name: adminData.fullName || 'Admin User',
           email: adminData.email,
           fullName: adminData.fullName,
-          role: 'blocks-admin',
+          role: adminData.role || 'admin', // Use role from backend, default to 'admin' for backward compatibility
           isActive: adminData.isActive,
           createdAt: adminData.createdAt,
-        });
+        };
 
-        navigate('/admin');
+        login(userData);
+
+        // Redirect based on role
+        const role = adminData.role || 'admin';
+        if (role === 'mlro' || role === 'audit_manager' || role === 'compliance') {
+          navigate('/admin/compliance');
+        } else {
+          navigate('/admin');
+        }
       }, 1500);
     } catch (err) {
       console.error('Signup error:', err);

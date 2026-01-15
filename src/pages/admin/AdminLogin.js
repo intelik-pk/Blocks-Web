@@ -42,19 +42,37 @@ const AdminLogin = () => {
         throw new Error('Invalid response from server');
       }
 
+      // Debug: Log what we received from backend
+      console.log('🔍 AdminLogin - Backend response:', {
+        adminData,
+        role: adminData.role,
+        hasRole: !!adminData.role
+      });
+
       // Login with admin data
-      login({
+      const userData = {
         id: adminData.id,
         userId: adminData.id, // Store as userId for compatibility
         name: adminData.fullName || 'Admin User',
         email: adminData.email,
         fullName: adminData.fullName,
-        role: 'blocks-admin',
+        role: adminData.role || 'admin', // Use role from backend, default to 'admin' for backward compatibility
         isActive: adminData.isActive,
         createdAt: adminData.createdAt,
-      });
+      };
 
-      navigate('/admin');
+      console.log('🔍 AdminLogin - User data being saved:', userData);
+      login(userData);
+
+      // Redirect based on role
+      const role = adminData.role || 'admin';
+      if (role === 'mlro' || role === 'audit_manager' || role === 'compliance') {
+        // Compliance roles go to compliance dashboard
+        navigate('/admin/compliance');
+      } else {
+        // Regular admin and super_admin go to main admin dashboard
+        navigate('/admin');
+      }
     } catch (err) {
       console.error('Login error:', err);
       const errorMessage = 

@@ -324,10 +324,14 @@ export const orgAdminAPI = {
 // Blocks Admin Authentication API
 export const blocksAdminAPI = {
   // Blocks Admin Authentication
-  signup: (data) => api.post('/blocks-admin/signup', data), // POST /blocks-admin/signup { email, password, fullName }
+  signup: (data, adminId) => api.post('/blocks-admin/signup', data, { 
+    headers: adminId ? { 'x-admin-id': adminId } : {} 
+  }), // POST /blocks-admin/signup { email, password, fullName, role? } (optional x-admin-id header for createdBy)
   login: (credentials) => api.post('/blocks-admin/login', credentials), // POST /blocks-admin/login { email, password }
   getMe: (adminId) => api.get('/blocks-admin/me', { headers: { 'x-admin-id': adminId } }), // GET /blocks-admin/me (requires x-admin-id header)
   getAllAdmins: (adminId) => api.get('/blocks-admin', { headers: { 'x-admin-id': adminId } }), // GET /blocks-admin (requires x-admin-id header)
+  deleteAdmin: (id, adminId) => api.delete(`/blocks-admin/${id}`, { headers: { 'x-admin-id': adminId } }), // DELETE /blocks-admin/:id (requires x-admin-id header)
+  resetPassword: (id, newPassword, adminId) => api.patch(`/blocks-admin/${id}/reset-password`, { newPassword }, { headers: { 'x-admin-id': adminId } }), // PATCH /blocks-admin/:id/reset-password { newPassword } (requires x-admin-id header)
 };
 
 // Admin API (Updated to match actual backend)
@@ -399,6 +403,15 @@ export const adminAPI = {
   getBankAccountSettings: () => api.get('/admin/settings/bank-account'), // GET /admin/settings/bank-account
   updateBankAccountSettings: (data) => api.patch('/admin/settings/bank-account', data), // PATCH /admin/settings/bank-account
   getAllSettings: () => api.get('/admin/settings'), // GET /admin/settings
+  
+  // PVARA Compliance: User Blocking
+  blockUser: (userId, data) => api.patch(`/admin/users/${userId}/block`, data),
+  unblockUser: (userId, data) => api.patch(`/admin/users/${userId}/unblock`, data),
+  
+  // PVARA Compliance: Wallet Freeze
+  freezeWallet: (walletId, data) => api.patch(`/admin/wallets/${walletId}/freeze`, data),
+  unfreezeWallet: (walletId, data) => api.patch(`/admin/wallets/${walletId}/unfreeze`, data),
+  getWalletByUserId: (userId) => api.get(`/admin/wallets/user/${userId}`),
 };
 
 // Portfolio API (Complete - User End)
