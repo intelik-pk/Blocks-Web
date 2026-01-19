@@ -404,6 +404,20 @@ export const adminAPI = {
   updateBankAccountSettings: (data) => api.patch('/admin/settings/bank-account', data), // PATCH /admin/settings/bank-account
   getAllSettings: () => api.get('/admin/settings'), // GET /admin/settings
   
+  // Gmail OAuth Integration
+  connectGmail: (adminId, gmailAddress) => {
+    // Open OAuth URL in same window (backend will redirect to Google)
+    const params = new URLSearchParams({ adminId });
+    if (gmailAddress) params.append('gmailAddress', gmailAddress);
+    window.location.href = `${API_BASE_URL}/api/auth/gmail/connect?${params.toString()}`;
+  },
+  getGmailIntegrations: () => api.get('/api/gmail/integrations'), // GET /api/gmail/integrations (if you add this endpoint)
+  getGmailStatus: (adminId) => {
+    const params = new URLSearchParams({ adminId });
+    return api.get(`/api/auth/gmail/status?${params.toString()}`);
+  }, // GET /api/auth/gmail/status?adminId=xxx
+  renewGmailWatch: () => api.post('/api/gmail/watch/renew'), // POST /api/gmail/watch/renew
+  
   // PVARA Compliance: User Blocking
   blockUser: (userId, data) => api.patch(`/admin/users/${userId}/block`, data),
   unblockUser: (userId, data) => api.patch(`/admin/users/${userId}/unblock`, data),

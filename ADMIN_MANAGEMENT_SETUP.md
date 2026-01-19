@@ -8,6 +8,16 @@ If the "Admin Management" tab is not appearing in the sidebar, follow these step
 
 Your existing admin account needs to have `role = 'super_admin'` in the database.
 
+
+
+
+
+
+
+
+
+
+
 **Option A: Via SQL (Recommended)**
 ```sql
 -- Connect to your database and run:

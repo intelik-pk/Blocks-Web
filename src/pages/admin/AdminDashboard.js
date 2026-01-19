@@ -22,7 +22,8 @@ import {
   Trash2,
   CheckCircle,
   Clock,
-  Gift
+  Gift,
+  Mail
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -106,6 +107,7 @@ const AdminDashboard = () => {
   const [tabFilters, setTabFilters] = useState({}); // Store filters to apply when switching tabs
   const [showNotifications, setShowNotifications] = useState(false); // Notification popover state
   const notificationIconRef = useRef(null); // Notification icon ref
+  const [gmailStatus, setGmailStatus] = useState(null); // Gmail integration status
 
   // Wrapper function to update both state and URL
   const setActiveTab = (tab) => {
@@ -253,6 +255,35 @@ const AdminDashboard = () => {
       retry: 1,
       onError: (error) => {
         console.log('Activity count fetch error:', error.message);
+      }
+    }
+  );
+
+  // Fetch Gmail integration status (only on mount, no automatic polling)
+  const { data: gmailStatusData } = useQuery(
+    ['gmail-status', adminUser?.id || adminUser?.userId || adminUser?._id],
+    () => {
+      const adminId = adminUser?.id || adminUser?.userId || adminUser?._id;
+      if (!adminId) return null;
+      console.log('🔄 Fetching Gmail status for admin:', adminId);
+      return adminAPI.getGmailStatus(adminId);
+    },
+    {
+      enabled: isAuthenticated && !!(adminUser?.id || adminUser?.userId || adminUser?._id),
+      staleTime: 0, // Always consider data stale, so it refetches
+      cacheTime: 0, // Don't cache the result
+      retry: 1,
+      onSuccess: (data) => {
+        console.log('✅ Gmail status received:', data?.data);
+        if (data?.data?.status) {
+          setGmailStatus(data.data.status);
+        } else {
+          setGmailStatus(null);
+        }
+      },
+      onError: (error) => {
+        console.log('❌ Gmail status fetch error:', error.message);
+        setGmailStatus(null);
       }
     }
   );
@@ -1829,6 +1860,32 @@ const AdminDashboard = () => {
               {adminUser?.name || "Admin"}
             </span>
           </div>
+
+          {/* Gmail Reconnect Button */}
+          <button
+            onClick={() => {
+              const adminId = adminUser?.id || adminUser?.userId || adminUser?._id;
+              if (!adminId) {
+                alert('Admin ID not found. Please login again.');
+                return;
+              }
+              adminAPI.connectGmail(adminId);
+            }}
+            className="relative inline-flex items-center justify-center rounded-lg p-2 transition-all duration-200 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            aria-label="Reconnect Gmail"
+            title={gmailStatus === 'CONNECTED' ? 'Gmail Connected' : 'Gmail Not Connected'}
+          >
+            <Mail className="w-5 h-5 text-black/80 dark:text-white/80" />
+            {/* Status Dot */}
+            <span
+              className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                gmailStatus === 'CONNECTED' ? 'bg-green-500' : 'bg-red-500'
+              }`}
+              style={{
+                boxShadow: `0 0 0 2px ${theme === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)'}`,
+              }}
+            />
+          </button>
 
           <ThemeToggle />
           <div ref={notificationIconRef} className="relative">
