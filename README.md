@@ -2,7 +2,7 @@
 
 A modern React-based frontend for the HMR Builders Real Estate Tokenization Platform with multi-organization support, admin dashboards, and comprehensive property investment management.
 
-## 🚀 Project Overview
+## 🚀 Project Overview 
 
 This platform enables:
 - **Property Browsing**: Browse and filter real estate properties
