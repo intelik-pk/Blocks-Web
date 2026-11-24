@@ -30,6 +30,8 @@ import { adminAPI, propertiesAPI, investmentsAPI, walletTransactionsAPI } from '
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
 import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
+import BankAssetSummary, { AssetCategoryBadge } from '../../components/assets/BankAssetSummary';
+import { getDocumentLabel, getTypeLabel, isBankAsset } from '../../utils/assetCategories';
 
 const PropertyDetail = () => {
   const { propertyId } = useParams();
@@ -215,7 +217,7 @@ const PropertyDetail = () => {
           color="yellow"
         />
         <StatCard
-          title="ROI"
+          title={isBankAsset(property.assetCategory) ? 'Expected Return' : 'ROI'}
           value={`${metrics.roi || 0}%`}
           icon={TrendingUp}
           color="purple"
@@ -245,6 +247,8 @@ const PropertyDetail = () => {
         />
       </div>
 
+      <BankAssetSummary asset={property} />
+
       {/* Property Information */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-card-foreground mb-4">Property Information</h3>
@@ -255,7 +259,7 @@ const PropertyDetail = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Type</label>
-            <p className="text-sm text-card-foreground capitalize">{property.type || property.property_type || 'N/A'}</p>
+            <p className="text-sm text-card-foreground capitalize">{getTypeLabel(property.assetCategory, property.type || property.property_type)}</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Status</label>
@@ -577,7 +581,7 @@ const PropertyDetail = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-card-foreground flex items-center">
                 <FileText className="w-5 h-5 mr-2" />
-                Brochure
+                {getDocumentLabel(property.assetCategory, 'brochure')}
               </h3>
             </div>
             <div className="p-4 bg-accent rounded-lg border border-border">
@@ -617,7 +621,7 @@ const PropertyDetail = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-card-foreground flex items-center">
                 <FileText className="w-5 h-5 mr-2" />
-                Floor Plan
+                {getDocumentLabel(property.assetCategory, 'floorPlan')}
               </h3>
             </div>
             <div className="p-4 bg-accent rounded-lg border border-border">
@@ -787,7 +791,10 @@ const PropertyDetail = () => {
                   />
                 )}
                 <div>
-                  <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || 'Property Details'}</h1>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || 'Property Details'}</h1>
+                    <AssetCategoryBadge category={property.assetCategory} type={property.type} />
+                  </div>
                   <p className="text-sm text-muted-foreground">{property.city || property.location_city || property.location || 'Location not specified'}</p>
                 </div>
               </div>

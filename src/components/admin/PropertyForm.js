@@ -6,9 +6,20 @@ import SimpleMap from './SimpleMap';
 import { adminAPI, uploadAPI, propertiesAPI, blocksBackendAPI, propertyTokensAPI } from '../../services/api';
 import { supabaseUpload } from '../../services/supabaseUpload';
 import { useToast } from '../ui/Toast';
+import { ASSET_CATEGORIES, ACTIVE_PHASE } from '../../utils/assetCategories';
 
 // Using Supabase for both document and image uploads
 console.log('✅ PropertyForm: Using Supabase for document and image uploads');
+
+const ASSET_TYPE_OPTIONS = Object.entries(ASSET_CATEGORIES)
+  .filter(([, def]) => def.phase <= ACTIVE_PHASE)
+  .flatMap(([categoryKey, def]) =>
+    def.types.map((t) => ({
+      value: t.value,
+      label: `${def.label} — ${t.label}`,
+      categoryKey,
+    }))
+  );
 
 const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false }) => {
   const toast = useToast();
@@ -19,7 +30,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
   const [formData, setFormData] = useState({
     // Required fields for backend validation
     organizationId: '', // Required: organization ID
-    type: 'residential', // Required: property type
+    type: 'sukuk', // Required: asset subtype
     status: 'active', // Required: one of the allowed values
     totalValueUSDT: '', // Required: number
     totalTokens: '', // Required: number
@@ -37,7 +48,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     location_country: 'Pakistan',
     location_latitude: '',
     location_longitude: '',
-    property_type: 'residential',
+    property_type: 'sukuk',
     project_type: '',
     floors: '',
     total_units: '',
@@ -931,7 +942,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
       validationErrors.push('Organization ID is required');
     }
     if (!formData.type || formData.type.trim() === '') {
-      validationErrors.push('Property Type is required');
+      validationErrors.push('Asset Type is required');
     }
     if (!formData.totalValueUSDT || parseFloat(formData.totalValueUSDT) <= 0) {
       validationErrors.push('Total Value (USDT) must be greater than 0');
@@ -981,7 +992,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     
     // Required display fields
     if (!formData.title || formData.title.trim() === '') {
-      validationErrors.push('Property Title is required');
+      validationErrors.push('Asset Title is required');
     }
     if (!formData.description || formData.description.trim() === '') {
       validationErrors.push('Description is required');
@@ -989,10 +1000,10 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     
     // Location validation - Only city and country are in DB
     if (!formData.location_city || formData.location_city.trim() === '') {
-      validationErrors.push('City is required');
+      validationErrors.push('Custody city is required');
     }
     if (!formData.location_country || formData.location_country.trim() === '') {
-      validationErrors.push('Country is required');
+      validationErrors.push('Custody country is required');
     }
     // COMMENTED OUT: Address and State validation - Not in DB
     // if (!formData.location_address || formData.location_address.trim() === '') {
@@ -1021,9 +1032,11 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
     console.log('✅ All validations passed');
     
     // Format data to match backend structure - ONLY FIELDS IN DATABASE
+    const selectedTypeOption = ASSET_TYPE_OPTIONS.find((o) => o.value === formData.type);
     const finalData = {
       // Required backend fields (ensure they are numbers, not strings)
       organizationId: formData.organizationId,
+      assetCategory: selectedTypeOption?.categoryKey || 'real_estate',
       type: formData.type,
       status: formData.status,
       totalValueUSDT: parseFloat(formData.totalValueUSDT) || 0,
@@ -2502,11 +2515,11 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                     <span className="font-bold text-blue-800">{property.title}</span>
                   </>
                 ) : (
-                  'Add New Property'
+                  'Add New Asset'
                 )}
               </h3>
               <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                {property ? 'Update property information' : 'Create a new property listing'}
+                {property ? 'Update asset information' : 'Create a new asset listing'}
               </p>
             </div>
             <button
@@ -2551,7 +2564,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                           ? 'text-card-foreground'
                           : 'text-muted-foreground'
                       }`}>
-                        {step === 1 && 'Basic & Location'}
+                        {step === 1 && 'Basic & Custody'}
                         {step === 3 && 'Media & Settings'}
                       </div>
                       <div className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">
@@ -2584,7 +2597,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                 <h4 className="text-lg font-semibold text-card-foreground">
                   Basic Information
                 </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">Essential property details</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Essential asset details</p>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
@@ -2624,7 +2637,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                  <span>Property Type</span>
+                  <span>Asset Type</span>
                   <span className="text-red-500 text-xs">*</span>
                 </label>
                 <select
@@ -2634,8 +2647,11 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                   required
                   className="w-full px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
                 >
-                  <option value="residential">🏠 Residential</option>
-                  <option value="commercial">🏢 Commercial</option>
+                  {ASSET_TYPE_OPTIONS.map((option) => (
+                    <option key={`${option.categoryKey}-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-2">
@@ -2693,7 +2709,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                   </div>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed flex items-start gap-1.5">
                     <span className="text-primary mt-0.5">ℹ️</span>
-                    <span>Total token supply for this property (e.g., 20000) - OR add token tiers below</span>
+                    <span>Total token supply for this asset (e.g., 20000) - OR add token tiers below</span>
                   </p>
                 </div>
               )}
@@ -3182,7 +3198,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
                 <div className="text-center py-8 text-muted-foreground">
                   <Hash className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No token tiers added yet</p>
-                  <p className="text-xs mt-1">Add token tiers to define different investment options for this property</p>
+                  <p className="text-xs mt-1">Add token tiers to define different investment options for this asset</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -3277,7 +3293,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-foreground mb-2">
-                  Property Title
+                  Asset Title
                 </label>
                 <input
                   type="text"
@@ -3333,11 +3349,11 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
             </div>
           </Card>
 
-          {/* Location Information */}
+          {/* Custody Location */}
           <Card className="p-6">
             <h4 className="text-lg font-semibold text-card-foreground mb-4 flex items-center">
               <MapPin className="w-5 h-5 mr-2" />
-              Location Information
+              Custody Location
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* COMMENTED OUT: Address - Not in DB */}
@@ -3356,7 +3372,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div> */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  City *
+                  Custody City *
                 </label>
                 <input
                   type="text"
@@ -3383,7 +3399,7 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div> */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  Country *
+                  Custody Country *
                 </label>
                 <input
                   type="text"
@@ -4254,19 +4270,19 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-card-foreground">
-                  Features
+                  Key Terms
                 </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">Optional property features</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Optional asset / offering terms</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
-              Add property features like modern architecture, energy efficiency, smart home features, etc.
+              Add key terms such as Shariah Compliant, Government-Backed, Fixed Profit Rate, Semi-Annual Distributions, etc.
             </p>
             <div className="space-y-4">
               <div className="flex gap-3">
                 <input
                   type="text"
-                  placeholder="Add a feature (e.g., Modern Architecture)"
+                  placeholder="Add a term (e.g., Shariah Compliant)"
                   value={newFeature}
                   onChange={(e) => setNewFeature(e.target.value)}
                   className="flex-1 px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"
@@ -4306,19 +4322,19 @@ const PropertyForm = ({ property, onSave, onCancel, isLoading, inline = false })
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-card-foreground">
-                  Amenities
+                  Highlights
                 </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">Optional property amenities</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Optional investor-facing highlights</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
-              Add property amenities like swimming pool, gym, parking, security, etc.
+              Add highlights such as Investment Grade, Held to Maturity, Asset-Backed Sukuk, Tradable Secondary Market, etc.
             </p>
             <div className="space-y-4">
               <div className="flex gap-3">
                 <input
                   type="text"
-                  placeholder="Add an amenity (e.g., Swimming Pool)"
+                  placeholder="Add a highlight (e.g., Investment Grade)"
                   value={newAmenity}
                   onChange={(e) => setNewAmenity(e.target.value)}
                   className="flex-1 px-4 py-3 text-sm border border-input/70 bg-card/50 text-card-foreground placeholder:text-muted-foreground rounded-xl transition-all duration-200 focus:ring-2 focus:ring-primary/30 focus:border-primary hover:border-input hover:bg-card shadow-sm"

@@ -4,8 +4,12 @@ import Card from './ui/Card';
 import Badge from './ui/Badge';
 import Button from './ui/Button';
 import { formatLocation, formatPrice, getPropertyImage } from '../utils/formatLocation';
+import { isBankAsset } from '../utils/assetCategories';
 
 const PropertyCard = ({ property, onInvest }) => {
+  const bankAsset = isBankAsset(property.assetCategory);
+  const typeBadgeLabel = property.propertyType || property.type || property.property_type || 'Property';
+
   // Debug: Log the property data
   console.log('PropertyCard received property:', property);
 
@@ -124,10 +128,11 @@ const PropertyCard = ({ property, onInvest }) => {
           />
           <div className="absolute top-2 left-2 flex gap-2 flex-wrap">
             {getStatusBadge(property.status)}
-            <Badge className={getPropertyTypeColor(property.propertyType || property.type || property.property_type)}>
-              {/* Show exact DB value - no transformation */}
-              {property.propertyType || property.type || property.property_type || 'Property'}
-            </Badge>
+            {!bankAsset && (
+              <Badge className={getPropertyTypeColor(property.propertyType || property.type || property.property_type)}>
+                {typeBadgeLabel}
+              </Badge>
+            )}
             {property.isFeatured && (
               <Badge variant="primary">Featured</Badge>
             )}
@@ -139,10 +144,11 @@ const PropertyCard = ({ property, onInvest }) => {
           <Building2 className="w-16 h-16 text-muted-foreground" />
           <div className="absolute top-2 left-2 flex gap-2 flex-wrap">
             {getStatusBadge(property.status)}
-            <Badge className={getPropertyTypeColor(property.propertyType || property.type || property.property_type)}>
-              {/* Show exact DB value - no transformation */}
-              {property.propertyType || property.type || property.property_type || 'Property'}
-            </Badge>
+            {!bankAsset && (
+              <Badge className={getPropertyTypeColor(property.propertyType || property.type || property.property_type)}>
+                {typeBadgeLabel}
+              </Badge>
+            )}
             {property.isFeatured && (
               <Badge variant="primary">Featured</Badge>
             )}
@@ -199,7 +205,7 @@ const PropertyCard = ({ property, onInvest }) => {
             </p>
           </div>
           <div>
-            <p className="text-sm text-white/80">Expected ROI</p>
+            <p className="text-sm text-white/80">{bankAsset ? 'Expected Return' : 'Expected ROI'}</p>
             <p className="font-semibold text-lg text-green-400">
               {expectedROI ? `${expectedROI}%` : 'N/A'}
             </p>

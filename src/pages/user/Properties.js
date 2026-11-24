@@ -9,12 +9,21 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
+import { ASSET_CATEGORIES, ACTIVE_PHASE } from '../../utils/assetCategories';
+
+const assetCategoryOptions = [
+  { value: '', label: 'All Asset Classes' },
+  ...Object.entries(ASSET_CATEGORIES)
+    .filter(([, def]) => def.phase <= ACTIVE_PHASE)
+    .map(([value, def]) => ({ value, label: def.label })),
+];
 
 const Properties = () => {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({
     search: '',
     status: '',
+    asset_category: '',
     property_type: '',
     city: '',
     featured: false,
@@ -98,12 +107,16 @@ const Properties = () => {
 
   // Handle both old and new API response formats
   // Try multiple response formats to handle different backend structures
-  const properties = data?.data?.data?.properties || 
+  const allProperties = data?.data?.data?.properties || 
                      data?.data?.properties || 
                      data?.properties || 
                      data?.data?.data || 
                      (Array.isArray(data?.data) ? data.data : []) ||
                      [];
+  // /properties does not filter by asset class server-side
+  const properties = filters.asset_category
+    ? allProperties.filter(p => (p.assetCategory || 'real_estate') === filters.asset_category)
+    : allProperties;
   const pagination = data?.data?.data?.pagination || 
                      data?.data?.pagination || 
                      data?.pagination || 
@@ -137,6 +150,7 @@ const Properties = () => {
     setFilters({
       search: '',
       status: '',
+      asset_category: '',
       property_type: '',
       city: '',
       featured: false,
@@ -234,7 +248,24 @@ const Properties = () => {
         {/* Advanced Filters */}
         {(showFilters || window.innerWidth >= 1024) && (
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Asset Class</label>
+                <select
+                  value={filters.asset_category}
+                  onChange={(e) => {
+                    handleFilterChange('asset_category', e.target.value);
+                  }}
+                  className="input"
+                >
+                  {assetCategoryOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select
@@ -316,9 +347,20 @@ const Properties = () => {
       </Card>
 
       {/* Active Filters Indicator */}
-      {(filters.status || filters.property_type || filters.city || filters.featured || filters.search) && (
+      {(filters.asset_category || filters.status || filters.property_type || filters.city || filters.featured || filters.search) && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-600">Active filters:</span>
+          {filters.asset_category && (
+            <Badge variant="default" className="text-xs">
+              Asset Class: {assetCategoryOptions.find(opt => opt.value === filters.asset_category)?.label}
+              <button
+                onClick={() => handleFilterChange('asset_category', '')}
+                className="ml-2 hover:text-red-600"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
           {filters.status && (
             <Badge variant="default" className="text-xs">
               Status: {statusOptions.find(opt => opt.value === filters.status)?.label || filters.status}

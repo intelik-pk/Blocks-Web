@@ -27,6 +27,8 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { propertiesAPI, investmentsAPI } from '../services/api';
 import { formatLocation, formatPrice, getPropertyImage, getPropertyImages } from '../utils/formatLocation';
+import BankAssetSummary, { AssetCategoryBadge } from '../components/assets/BankAssetSummary';
+import { getCategory, getTypeLabel, isBankAsset } from '../utils/assetCategories';
 
 const PropertyDetail = () => {
   const { id } = useParams();
@@ -188,7 +190,9 @@ const PropertyDetail = () => {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-muted-foreground">Expected ROI</p>
+              <p className="text-xs text-muted-foreground">
+                {isBankAsset(property.assetCategory) ? getCategory(property.assetCategory).returnLabel.replace(' (%)', '') : 'Expected ROI'}
+              </p>
               <p className="text-lg font-bold text-green-600 mt-1">
                 {expectedROI ? `${expectedROI}%` : 'N/A'}
               </p>
@@ -265,6 +269,8 @@ const PropertyDetail = () => {
           </div>
         </div>
       </Card>
+
+      <BankAssetSummary asset={property} />
     </div>
   );
 
@@ -280,8 +286,9 @@ const PropertyDetail = () => {
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-1">Type</label>
             <p className="text-sm text-card-foreground">
-              {/* Show exact DB value - no transformation */}
-              {property.type || property.property_type || property.propertyType || 'N/A'}
+              {isBankAsset(property.assetCategory)
+                ? getTypeLabel(property.assetCategory, property.type)
+                : property.type || property.property_type || property.propertyType || 'N/A'}
             </p>
           </div>
           <div>
@@ -570,6 +577,7 @@ const PropertyDetail = () => {
                   />
                 )}
                 <h1 className="text-3xl font-bold text-card-foreground">{property.title || property.name}</h1>
+                <AssetCategoryBadge category={property.assetCategory} type={property.type} />
               </div>
               <div className="flex items-center space-x-4">
                 <div className="flex items-center text-muted-foreground">

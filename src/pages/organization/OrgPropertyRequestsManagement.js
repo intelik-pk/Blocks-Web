@@ -6,10 +6,15 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { propertyRequestsAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
-import PropertyRequestForm from '../../components/organization/PropertyRequestForm';
 import { useToast } from '../../components/ui/Toast';
 import { cn } from '../../utils/cn';
 import { API_BASE_URL } from '../../config/api';
+import BankAssetSummary, { AssetCategoryBadge } from '../../components/assets/BankAssetSummary';
+import { getDocumentLabel, getTypeLabel } from '../../utils/assetCategories';
+import {
+  AssetCategoryPicker,
+  BANK_ASSET_REQUEST_FORMS,
+} from '../../components/organization/asset-requests';
 
 const OrgPropertyRequestsManagement = ({ organizationId }) => {
   const { organizationUser, isAuthenticated, adminId } = useOrganizationAuth();
@@ -18,8 +23,14 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
   const orgAdminId = adminId || organizationUser?.adminId || organizationUser?.id;
   
   const [showForm, setShowForm] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const closeForm = () => {
+    setShowForm(false);
+    setSelectedCategory(null);
+  };
 
   // Fetch property requests for this organization
   const { data: requestsData, isLoading } = useQuery(
@@ -108,51 +119,61 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
   };
 
   const handleFormSuccess = () => {
-    setShowForm(false);
+    closeForm();
     queryClient.invalidateQueries(['org-property-requests', orgAdminId]);
-    toast.success('Property request submitted successfully!');
+    toast.success('Asset request submitted successfully!');
   };
+
+  const SelectedForm = selectedCategory ? BANK_ASSET_REQUEST_FORMS[selectedCategory] : null;
 
   return (
     <div className="space-y-6 relative">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {showForm ? 'New Property Request' : selectedRequest ? 'Request Details' : 'Property Requests'}
+            {showForm
+              ? (selectedCategory ? 'New Asset Request' : 'Select Asset Category')
+              : selectedRequest ? 'Request Details' : 'Asset Requests'}
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             {showForm 
-              ? 'Fill in the details to request a new property' 
+              ? (selectedCategory
+                ? 'Complete the category-specific registration form'
+                : 'Pick a category to open its dedicated registration form')
               : selectedRequest
               ? `Viewing details for ${selectedRequest.title}`
-              : 'Request new properties for your organization'}
+              : 'Submit and track asset requests for your organization'}
           </p>
         </div>
         {showForm || selectedRequest ? (
           <Button variant="outline" onClick={() => {
-            setShowForm(false);
+            closeForm();
             setSelectedRequest(null);
           }}>
             <X className="w-4 h-4 mr-2" />
             {showForm ? 'Cancel' : 'Back to List'}
           </Button>
         ) : (
-          <Button onClick={() => setShowForm(true)}>
+          <Button onClick={() => { setSelectedCategory(null); setShowForm(true); }}>
             <Plus className="w-4 h-4 mr-2" />
-            New Request
+            New Asset Request
           </Button>
         )}
       </div>
 
       {showForm ? (
-        /* Form replaces the list */
         <div className="space-y-6">
-          <PropertyRequestForm
-            onSave={handleFormSuccess}
-            onCancel={() => setShowForm(false)}
-            isLoading={false}
-            inline={true}
-          />
+          {!selectedCategory ? (
+            <AssetCategoryPicker onSelect={setSelectedCategory} />
+          ) : SelectedForm ? (
+            <SelectedForm
+              onSave={handleFormSuccess}
+              onCancel={closeForm}
+              onBack={() => setSelectedCategory(null)}
+              isLoading={false}
+              inline={true}
+            />
+          ) : null}
         </div>
       ) : selectedRequest ? (
         /* Request Details replace the list */
@@ -161,6 +182,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-muted-foreground">Status:</span>
             {getStatusBadge(selectedRequest.status)}
+            <AssetCategoryBadge category={selectedRequest.assetCategory} type={selectedRequest.type} />
           </div>
 
           {/* Basic Information */}
@@ -183,16 +205,16 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Type</label>
-                  <p className="text-sm font-medium text-card-foreground mt-1 capitalize">{selectedRequest.type || 'N/A'}</p>
+                  <p className="text-sm font-medium text-card-foreground mt-1 capitalize">{getTypeLabel(selectedRequest.assetCategory, selectedRequest.type)}</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">Property Status</label>
+                  <label className="text-sm font-medium text-muted-foreground">Offering Status</label>
                   <p className="text-sm font-medium text-card-foreground mt-1 capitalize">{selectedRequest.propertyStatus || 'N/A'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <MapPin className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Location:</span>
+                <span className="text-muted-foreground">Custody Location:</span>
                 <span className="font-medium text-card-foreground">
                   {selectedRequest.city || 'N/A'}, {selectedRequest.country || 'N/A'}
                 </span>
@@ -228,6 +250,8 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
             </div>
           </Card>
 
+          <BankAssetSummary asset={selectedRequest} isRequest={selectedRequest.status !== 'approved'} />
+
           {/* Property Images */}
           {(() => {
             const imageUrls = getImageUrls(selectedRequest);
@@ -235,14 +259,14 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
               <Card className="p-6">
                 <h4 className="text-lg font-semibold text-card-foreground mb-4 flex items-center gap-2">
                   <ImageIcon className="w-5 h-5" />
-                  Property Images ({imageUrls.length})
+                  Cover Image ({imageUrls.length})
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {imageUrls.map((url, index) => (
                     <div key={index} className="relative group">
                       <img
                         src={url}
-                        alt={`Property ${index + 1}`}
+                        alt={`Asset cover ${index + 1}`}
                         className="w-full h-48 object-cover rounded-lg border border-border hover:shadow-lg transition-shadow cursor-pointer"
                         onError={(e) => {
                           e.target.style.display = 'none';
@@ -275,7 +299,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
                       <div className="flex items-center gap-3">
                         <FileText className="w-5 h-5 text-primary" />
                         <div>
-                          <p className="text-sm font-medium text-card-foreground">Brochure</p>
+                          <p className="text-sm font-medium text-card-foreground">{getDocumentLabel(selectedRequest.assetCategory, 'brochure')}</p>
                           <p className="text-xs text-muted-foreground">
                             {doc?.name || 'Brochure document'}
                           </p>
@@ -301,7 +325,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
                       <div className="flex items-center gap-3">
                         <FileText className="w-5 h-5 text-primary" />
                         <div>
-                          <p className="text-sm font-medium text-card-foreground">Floor Plan</p>
+                          <p className="text-sm font-medium text-card-foreground">{getDocumentLabel(selectedRequest.assetCategory, 'floorPlan')}</p>
                           <p className="text-xs text-muted-foreground">
                             {doc?.name || 'Floor plan document'}
                           </p>
@@ -425,7 +449,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
             <Card className="p-8 text-center">
               <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-400 mb-4">
-                {searchTerm ? 'No requests found matching your search' : 'No property requests yet'}
+                {searchTerm ? 'No requests found matching your search' : 'No asset requests yet'}
               </p>
               {!searchTerm && (
                 <Button onClick={() => setShowForm(true)}>
@@ -456,7 +480,7 @@ const OrgPropertyRequestsManagement = ({ organizationId }) => {
                         </div>
                         <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                           <Building2 className="w-4 h-4" />
-                          <span className="capitalize">{request.type}</span>
+                          <span className="capitalize">{getTypeLabel(request.assetCategory, request.type)}</span>
                         </div>
                         <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                           <DollarSign className="w-4 h-4" />

@@ -21,6 +21,7 @@ import { organizationsAPI, adminAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
 import OrgPropertyRequestsManagement from './OrgPropertyRequestsManagement';
 import { cn } from '../../utils/cn';
+import { ASSET_CATEGORIES, ACTIVE_PHASE, isBankAsset } from '../../utils/assetCategories';
 
 const OrgPropertiesManagement = ({ organizationId }) => {
   const { isAuthenticated } = useOrganizationAuth();
@@ -32,6 +33,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
   const [filters, setFilters] = useState({
     search: '',
     status: '',
+    asset_category: '',
     property_type: '',
     startDate: '',
     endDate: '',
@@ -41,6 +43,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
   const [appliedFilters, setAppliedFilters] = useState({
     search: '',
     status: '',
+    asset_category: '',
     property_type: '',
     startDate: '',
     endDate: '',
@@ -114,6 +117,12 @@ const OrgPropertiesManagement = ({ organizationId }) => {
       );
     }
     
+    if (appliedFilters.asset_category) {
+      filtered = filtered.filter(property =>
+        (property.assetCategory || 'real_estate') === appliedFilters.asset_category
+      );
+    }
+
     if (appliedFilters.property_type) {
       filtered = filtered.filter(property =>
         (property.type || property.propertyType || property.property_type || '').toLowerCase() === appliedFilters.property_type.toLowerCase()
@@ -235,12 +244,12 @@ const OrgPropertiesManagement = ({ organizationId }) => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-card-foreground">Properties Management</h2>
+          <h2 className="text-2xl font-bold text-card-foreground">Asset Management</h2>
           <p className="text-muted-foreground">
-            Manage your organization's properties
+            Manage your bank's tokenized assets
             {activeSubTab === 'properties' && (
               <span className="ml-2 text-primary font-medium">
-                ({filteredProperties.length} {filteredProperties.length === 1 ? 'property' : 'properties'})
+                ({filteredProperties.length} {filteredProperties.length === 1 ? 'asset' : 'assets'})
               </span>
             )}
           </p>
@@ -259,7 +268,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
           )}
         >
           <Building2 className="w-4 h-4" />
-          Properties
+          Assets
         </button>
         <button
           onClick={() => setActiveSubTab('property-requests')}
@@ -271,7 +280,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
           )}
         >
           <FileText className="w-4 h-4" />
-          Property Requests
+          Asset Requests
         </button>
       </div>
 
@@ -290,7 +299,7 @@ const OrgPropertiesManagement = ({ organizationId }) => {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search properties..."
+                placeholder="Search assets..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -314,7 +323,23 @@ const OrgPropertiesManagement = ({ organizationId }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Class</label>
+            <select
+              value={filters.asset_category}
+              onChange={(e) => handleFilterChange('asset_category', e.target.value)}
+              className="w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-ring focus:border-primary"
+            >
+              <option value="">All Asset Classes</option>
+              {Object.entries(ASSET_CATEGORIES)
+                .filter(([, def]) => def.phase <= ACTIVE_PHASE)
+                .map(([value, def]) => (
+                  <option key={value} value={value}>{def.label}</option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset Type</label>
             <select
               value={filters.property_type}
               onChange={(e) => handleFilterChange('property_type', e.target.value)}
@@ -323,7 +348,16 @@ const OrgPropertiesManagement = ({ organizationId }) => {
               <option value="">All Types</option>
               <option value="residential">Residential</option>
               <option value="commercial">Commercial</option>
-              <option value="plot">Plot</option>
+              <option value="mortgage">Mortgage</option>
+              <option value="auto">Car / Auto</option>
+              <option value="personal">Personal</option>
+              <option value="business">Business</option>
+              <option value="government_security">Government Security</option>
+              <option value="corporate_bond">Corporate Bond</option>
+              <option value="sukuk">Sukuk</option>
+              <option value="invoice">Invoices</option>
+              <option value="bill">Bills of Exchange</option>
+              <option value="trade_receivable">Trade Receivables</option>
             </select>
           </div>
 
@@ -381,11 +415,11 @@ const OrgPropertiesManagement = ({ organizationId }) => {
       {paginatedProperties.length === 0 ? (
         <Card className="p-12 text-center">
           <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-card-foreground mb-2">No properties found</h3>
+          <h3 className="text-lg font-medium text-card-foreground mb-2">No assets found</h3>
           <p className="text-muted-foreground">
-            {appliedFilters.search || appliedFilters.status || appliedFilters.property_type
+            {appliedFilters.search || appliedFilters.status || appliedFilters.property_type || appliedFilters.asset_category
               ? 'Try adjusting your filters'
-              : 'No properties have been added yet'}
+              : 'No assets have been added yet. Submit an asset request to get started.'}
           </p>
         </Card>
       ) : (
@@ -396,11 +430,11 @@ const OrgPropertiesManagement = ({ organizationId }) => {
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-card-foreground mb-1">
-                      {property.title || property.name || 'Unnamed Property'}
+                      {property.title || property.name || 'Unnamed Asset'}
                     </h3>
                     <div className="flex items-center text-sm text-muted-foreground">
                       <MapPin className="w-4 h-4 mr-1" />
-                      {property.city || property.location || 'No location'}
+                      {property.city || property.location || 'No custody location'}
                       {property.country && `, ${property.country}`}
                     </div>
                   </div>
@@ -429,14 +463,16 @@ const OrgPropertiesManagement = ({ organizationId }) => {
                     </span>
                   </div>
 
-                  <div className="pt-3 border-t border-border">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Type</span>
-                      <Badge variant="blue">
-                        {property.type || property.propertyType || property.property_type || 'N/A'}
-                      </Badge>
+                  {!isBankAsset(property.assetCategory) && (
+                    <div className="pt-3 border-t border-border">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Type</span>
+                        <Badge variant="blue">
+                          {property.type || property.propertyType || property.property_type || 'N/A'}
+                        </Badge>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-border">

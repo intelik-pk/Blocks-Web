@@ -468,7 +468,7 @@ const OrgDashboard = () => {
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
-    { id: 'properties', label: 'Properties', icon: Building2 },
+    { id: 'properties', label: 'Assets', icon: Building2 },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'transactions', label: 'Transactions', icon: DollarSign },
     { id: 'investments', label: 'Investments', icon: TrendingUp },
@@ -553,7 +553,7 @@ const OrgDashboard = () => {
           onClick={() => setActiveTab('users')}
         />
         <StatCard
-          title={`${organizationName} Properties`}
+          title={`${organizationName} Assets`}
           value={stats.totalProperties || 0}
           icon={Building2}
           color="green"
@@ -612,7 +612,7 @@ const OrgDashboard = () => {
         <Card className="p-6">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Property Value</span>
+              <span className="text-sm text-muted-foreground">Asset Value</span>
               <Building2 className="w-4 h-4 text-green-600" />
             </div>
             <p className="text-2xl font-bold text-card-foreground">
@@ -635,7 +635,7 @@ const OrgDashboard = () => {
             className="flex items-center justify-center space-x-2 py-4"
           >
             <Building2 className="w-5 h-5" />
-            <span>View Properties</span>
+            <span>View Assets</span>
           </Button>
           <Button 
             variant="outline" 

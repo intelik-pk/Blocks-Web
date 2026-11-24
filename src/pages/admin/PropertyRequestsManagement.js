@@ -8,6 +8,8 @@ import { propertyRequestsAPI } from '../../services/api';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import { useToast } from '../../components/ui/Toast';
 import PropertyRequestFilters from '../../components/propertyRequests/PropertyRequestFilters';
+import BankAssetSummary, { AssetCategoryBadge } from '../../components/assets/BankAssetSummary';
+import { getTypeLabel } from '../../utils/assetCategories';
 
 const PropertyRequestsManagement = () => {
   const { isAuthenticated, adminUser } = useAdminAuth();
@@ -98,7 +100,7 @@ const PropertyRequestsManagement = () => {
     {
       onSuccess: () => {
         queryClient.invalidateQueries('property-requests');
-        toast.success('Property request approved! Property has been created.');
+        toast.success('Asset request approved! The asset has been created.');
         setSelectedRequest(null);
       },
       onError: (error) => {
@@ -112,7 +114,7 @@ const PropertyRequestsManagement = () => {
     {
       onSuccess: () => {
         queryClient.invalidateQueries('property-requests');
-        toast.success('Property request rejected.');
+        toast.success('Asset request rejected.');
         setSelectedRequest(null);
         setRejectionReason('');
       },
@@ -139,7 +141,7 @@ const PropertyRequestsManagement = () => {
   };
 
   const handleApprove = (request) => {
-    if (window.confirm(`Approve property request: "${request.title}"? This will create the property.`)) {
+    if (window.confirm(`Approve asset request: "${request.title}"? This will create the asset.`)) {
       approveMutation.mutate(request.id);
     }
   };
@@ -149,7 +151,7 @@ const PropertyRequestsManagement = () => {
       toast.error('Please provide a rejection reason');
       return;
     }
-    if (window.confirm(`Reject property request: "${request.title}"?`)) {
+    if (window.confirm(`Reject asset request: "${request.title}"?`)) {
       rejectMutation.mutate({ id: request.id, reason: rejectionReason });
     }
   };
@@ -162,9 +164,9 @@ const PropertyRequestsManagement = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Property Requests</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Asset Requests</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Review and approve/reject property requests from ORG Admins
+            Review and approve/reject asset requests from organization admins
           </p>
         </div>
       </div>
@@ -224,7 +226,7 @@ const PropertyRequestsManagement = () => {
         <Card className="p-8 text-center">
           <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">
-            {filters.search || (Array.isArray(filters.status) && filters.status.length > 0) ? 'No requests found matching your filters' : 'No property requests yet'}
+            {filters.search || (Array.isArray(filters.status) && filters.status.length > 0) ? 'No requests found matching your filters' : 'No asset requests yet'}
           </p>
         </Card>
       ) : (
@@ -252,7 +254,7 @@ const PropertyRequestsManagement = () => {
                     </div>
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <Building2 className="w-4 h-4" />
-                      <span className="capitalize">{request.type}</span>
+                      <span className="capitalize">{getTypeLabel(request.assetCategory, request.type)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                       <DollarSign className="w-4 h-4" />
@@ -359,6 +361,7 @@ const PropertyRequestsManagement = () => {
                       <h3 className="text-xl font-bold text-card-foreground truncate mb-1">{selectedRequest.title}</h3>
                       <div className="flex items-center gap-3 flex-wrap">
                         {getStatusBadge(selectedRequest.status)}
+                        <AssetCategoryBadge category={selectedRequest.assetCategory} />
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
                           {new Date(selectedRequest.createdAt).toLocaleDateString()}
@@ -406,7 +409,7 @@ const PropertyRequestsManagement = () => {
                       <Building2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Type</span>
                     </div>
-                    <p className="text-base font-bold text-card-foreground capitalize">{selectedRequest.type || 'N/A'}</p>
+                    <p className="text-base font-bold text-card-foreground capitalize">{getTypeLabel(selectedRequest.assetCategory, selectedRequest.type)}</p>
                   </div>
                   <div className="p-4 bg-gradient-to-br from-green-500/10 to-green-600/5 rounded-xl border border-green-500/20">
                     <div className="flex items-center gap-2 mb-2">
@@ -488,6 +491,8 @@ const PropertyRequestsManagement = () => {
                     </p>
                   </div>
                 </div>
+
+                <BankAssetSummary asset={selectedRequest} isRequest={selectedRequest.status !== 'approved'} />
                 {/* Action Section for Pending Requests */}
                 {selectedRequest.status === 'pending' && (
                   <div className="sticky bottom-0 -mx-6 -mb-6 mt-6 p-5 bg-gradient-to-t from-card via-card/95 to-transparent backdrop-blur-xl border-t border-border/50">
@@ -557,7 +562,7 @@ const PropertyRequestsManagement = () => {
                   <div className="space-y-3">
                     <h4 className="text-sm font-semibold text-card-foreground uppercase tracking-wide flex items-center gap-2">
                       <div className="w-1 h-4 rounded-full"></div>
-                      Property Images
+                      Cover Image
                     </h4>
                     {selectedRequest.images?.urls && Array.isArray(selectedRequest.images.urls) && selectedRequest.images.urls.length > 0 ? (
                       <div className="grid grid-cols-2 gap-3">
@@ -565,7 +570,7 @@ const PropertyRequestsManagement = () => {
                           <div key={index} className="relative group overflow-hidden rounded-xl border border-border/50 hover:border-primary/50 transition-all aspect-video bg-accent/10">
                             <img 
                               src={url} 
-                              alt={`Property ${index + 1}`} 
+                              alt={`Asset cover ${index + 1}`} 
                               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                               onError={(e) => {
                                 e.target.style.display = 'none';

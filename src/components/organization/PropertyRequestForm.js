@@ -6,6 +6,15 @@ import { propertyRequestsAPI, uploadAPI } from '../../services/api';
 import { supabaseUpload } from '../../services/supabaseUpload';
 import { useToast } from '../ui/Toast';
 import { useOrganizationAuth } from './OrganizationAuth';
+import {
+  ASSET_CATEGORIES,
+  ACTIVE_PHASE,
+  RISK_RATINGS,
+  CASH_FLOW_KINDS,
+  getCategory,
+  getDocumentLabel,
+  isBankAsset,
+} from '../../utils/assetCategories';
 
 const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) => {
   const toast = useToast();
@@ -25,14 +34,18 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
   }, [adminId, organizationUser, orgAdminId]);
   
   const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 2;
   
   const [formData, setFormData] = useState({
     organizationId: organizationId || '',
+    assetCategory: 'real_estate',
     title: '',
     slug: '',
     description: '',
     type: 'residential',
+    maturityDate: '',
+    riskRating: '',
+    assetDetails: {},
+    cashFlowSchedule: [],
     propertyStatus: 'planning',
     totalValueUSDT: '',
     totalTokens: '',
@@ -47,6 +60,58 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
       compliance: []
     }
   });
+
+  const isBank = isBankAsset(formData.assetCategory);
+  const category = getCategory(formData.assetCategory);
+  const stepLabels = isBank ? ['Asset Overview', 'Asset Details', 'Offering & Documents'] : ['Basic Info', 'Details'];
+  const totalSteps = stepLabels.length;
+
+  const handleCategoryChange = (e) => {
+    const nextCategory = e.target.value;
+    const next = getCategory(nextCategory);
+    setFormData(prev => ({
+      ...prev,
+      assetCategory: nextCategory,
+      type: next.types[0].value,
+      propertyStatus: isBankAsset(nextCategory) && prev.propertyStatus === 'construction' ? 'planning' : prev.propertyStatus,
+      assetDetails: {},
+      cashFlowSchedule: [],
+      maturityDate: '',
+      riskRating: '',
+    }));
+    setCurrentStep(1);
+  };
+
+  const handleDetailChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      assetDetails: { ...prev.assetDetails, [field.key]: value },
+    }));
+  };
+
+  const addCashFlowRow = () => {
+    setFormData(prev => ({
+      ...prev,
+      cashFlowSchedule: [
+        ...prev.cashFlowSchedule,
+        { dueDate: '', amountUSDT: '', kind: category.defaultCashFlowKind || 'repayment' },
+      ],
+    }));
+  };
+
+  const updateCashFlowRow = (index, key, value) => {
+    setFormData(prev => ({
+      ...prev,
+      cashFlowSchedule: prev.cashFlowSchedule.map((row, i) => (i === index ? { ...row, [key]: value } : row)),
+    }));
+  };
+
+  const removeCashFlowRow = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      cashFlowSchedule: prev.cashFlowSchedule.filter((_, i) => i !== index),
+    }));
+  };
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
@@ -187,17 +252,51 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
       return;
     }
     if (!formData.expectedROI || formData.expectedROI === '') {
-      toast.error('Please enter Expected ROI');
+      toast.error(`Please enter ${category.returnLabel.replace(' (%)', '')}`);
       return;
     }
 
+    const { maturityDate, riskRating, assetDetails, cashFlowSchedule, ...baseData } = formData;
+
     // Prepare form data with converted numbers
     const submitData = {
-      ...formData,
+      ...baseData,
       totalValueUSDT: parseFloat(formData.totalValueUSDT) || 0,
       totalTokens: parseFloat(formData.totalTokens) || 0,
       expectedROI: parseFloat(formData.expectedROI) || 0
     };
+
+    if (isBank) {
+      if (!maturityDate) {
+        toast.error('Please enter the maturity date');
+        return;
+      }
+      if (!riskRating) {
+        toast.error('Please select a risk rating');
+        return;
+      }
+      const incompleteRow = cashFlowSchedule.findIndex(row => !row.dueDate || row.amountUSDT === '' || row.amountUSDT === null);
+      if (incompleteRow !== -1) {
+        toast.error(`Cash-flow row ${incompleteRow + 1} needs a due date and amount`);
+        return;
+      }
+
+      const normalizedDetails = {};
+      category.detailFields.forEach(field => {
+        const value = assetDetails[field.key];
+        if (value === undefined || value === '') return;
+        normalizedDetails[field.key] = field.type === 'number' ? parseFloat(value) : value;
+      });
+
+      submitData.maturityDate = maturityDate;
+      submitData.riskRating = riskRating;
+      submitData.assetDetails = normalizedDetails;
+      submitData.cashFlowSchedule = cashFlowSchedule.map(row => ({
+        dueDate: row.dueDate,
+        amountUSDT: parseFloat(row.amountUSDT) || 0,
+        kind: row.kind,
+      }));
+    }
 
     try {
       const response = await propertyRequestsAPI.create(submitData, orgAdminId);
@@ -226,7 +325,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
   const formContent = (
     <div className={`${inline ? 'w-full' : 'bg-white rounded-lg shadow-xl max-w-4xl w-full mx-auto my-8'} p-6`}>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Request New Property</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{isBank ? `New Asset Request — ${category.label}` : 'Request New Property'}</h2>
         {!inline && (
           <button
             onClick={onCancel}
@@ -240,7 +339,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
       {/* Progress Steps */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
-          {[1, 2].map((step) => (
+          {stepLabels.map((label, index) => index + 1).map((step) => (
             <React.Fragment key={step}>
               <div className="flex items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -249,7 +348,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   {currentStep > step ? <Check className="w-5 h-5" /> : step}
                 </div>
                 <span className={`ml-2 ${currentStep >= step ? 'text-primary' : 'text-gray-600'}`}>
-                  {step === 1 ? 'Basic Info' : 'Details'}
+                  {stepLabels[step - 1]}
                 </span>
               </div>
               {step < totalSteps && (
@@ -265,7 +364,28 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Property Title *
+                Asset Category *
+              </label>
+              <select
+                name="assetCategory"
+                value={formData.assetCategory}
+                onChange={handleCategoryChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+              >
+                {Object.entries(ASSET_CATEGORIES).map(([key, def]) => (
+                  <option key={key} value={key} disabled={def.phase > ACTIVE_PHASE}>
+                    {def.label}{def.phase > ACTIVE_PHASE ? ' (Phase 2 – coming soon)' : ''}
+                  </option>
+                ))}
+              </select>
+              {isBank && category.description && (
+                <p className="text-xs text-gray-500 mt-1">{category.description}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {isBank ? 'Asset Title *' : 'Property Title *'}
               </label>
               <input
                 type="text"
@@ -274,13 +394,13 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                 onChange={handleInputChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="e.g., Marina View Residences"
+                placeholder={isBank ? 'e.g., Auto Loan Pool 2026-A' : 'e.g., Marina View Residences'}
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Slug *
+                URL Slug *
               </label>
               <input
                 type="text"
@@ -289,7 +409,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                 onChange={handleInputChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="e.g., marina-view-residences"
+                placeholder={isBank ? 'e.g., abl-sukuk-2026-a' : 'e.g., marina-view-residences'}
               />
             </div>
 
@@ -303,7 +423,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                 onChange={handleInputChange}
                 rows={4}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="Describe the property..."
+                placeholder={isBank ? 'Describe the asset and the cash flows backing the tokens...' : 'Describe the property...'}
               />
             </div>
 
@@ -319,15 +439,15 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   required
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
-                  <option value="residential">Residential</option>
-                  <option value="commercial">Commercial</option>
-                  <option value="mixed">Mixed</option>
+                  {category.types.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Property Status
+                  {isBank ? 'Offering Status' : 'Property Status'}
                 </label>
                 <select
                   name="propertyStatus"
@@ -336,7 +456,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
                   <option value="planning">Planning</option>
-                  <option value="construction">Construction</option>
+                  {!isBank && <option value="construction">Construction</option>}
                   <option value="active">Active</option>
                   <option value="onhold">On Hold</option>
                   <option value="soldout">Sold Out</option>
@@ -348,7 +468,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  City
+                  {isBank ? 'Custody City' : 'City'}
                 </label>
                 <input
                   type="text"
@@ -356,12 +476,13 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   value={formData.city}
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                  placeholder={isBank ? 'e.g., Karachi' : ''}
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Country
+                  {isBank ? 'Custody Country' : 'Country'}
                 </label>
                 <input
                   type="text"
@@ -369,18 +490,145 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   value={formData.country}
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                  placeholder={isBank ? 'e.g., Pakistan' : ''}
                 />
               </div>
             </div>
           </div>
         )}
 
-        {currentStep === 2 && (
+        {isBank && currentStep === 2 && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Maturity Date *
+                </label>
+                <input
+                  type="date"
+                  name="maturityDate"
+                  value={formData.maturityDate}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Risk Rating *
+                </label>
+                <select
+                  name="riskRating"
+                  value={formData.riskRating}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                  <option value="">Select rating</option>
+                  {RISK_RATINGS.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {category.detailFields.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
+                {category.detailFields.map(field => (
+                  <div key={field.key}>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {field.label}
+                    </label>
+                    {field.type === 'select' ? (
+                      <select
+                        value={formData.assetDetails[field.key] || ''}
+                        onChange={(e) => handleDetailChange(field, e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                      >
+                        <option value="">Select</option>
+                        {field.options.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={formData.assetDetails[field.key] ?? ''}
+                        onChange={(e) => handleDetailChange(field, e.target.value)}
+                        min={field.type === 'number' ? '0' : undefined}
+                        step={field.type === 'number' ? 'any' : undefined}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Cash-flow Schedule
+                </label>
+                <Button type="button" variant="outline" size="sm" onClick={addCashFlowRow}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Payment
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Expected payments backing the tokens (e.g. repayments, profit, collections).
+              </p>
+              {formData.cashFlowSchedule.length === 0 ? (
+                <div className="text-center py-6 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500">
+                  No payments added yet
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {formData.cashFlowSchedule.map((row, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                      <input
+                        type="date"
+                        value={row.dueDate}
+                        onChange={(e) => updateCashFlowRow(index, 'dueDate', e.target.value)}
+                        className="col-span-4 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                      />
+                      <select
+                        value={row.kind}
+                        onChange={(e) => updateCashFlowRow(index, 'kind', e.target.value)}
+                        className="col-span-4 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                      >
+                        {CASH_FLOW_KINDS.map(k => (
+                          <option key={k.value} value={k.value}>{k.label}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="Amount (USDT)"
+                        value={row.amountUSDT}
+                        min="0"
+                        step="0.01"
+                        onChange={(e) => updateCashFlowRow(index, 'amountUSDT', e.target.value)}
+                        className="col-span-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeCashFlowRow(index)}
+                        className="col-span-1 flex justify-center text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {currentStep === totalSteps && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Total Value (USDT) *
+                  {isBank ? 'Asset Value (USDT) *' : 'Total Value (USDT) *'}
                 </label>
                 <input
                   type="number"
@@ -396,7 +644,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Total Tokens *
+                  {isBank ? 'Token Supply *' : 'Total Tokens *'}
                 </label>
                 <input
                   type="number"
@@ -412,7 +660,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Expected ROI (%) *
+                  {category.returnLabel} *
                 </label>
                 <input
                   type="number"
@@ -427,10 +675,16 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
               </div>
             </div>
 
+            {isBank && parseFloat(formData.totalValueUSDT) > 0 && parseFloat(formData.totalTokens) > 0 && (
+              <p className="text-sm text-gray-600">
+                Token price: <span className="font-semibold">{(parseFloat(formData.totalValueUSDT) / parseFloat(formData.totalTokens)).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT</span>
+              </p>
+            )}
+
             {/* Images */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Property Images
+                {isBank ? 'Asset Cover Image (optional)' : 'Property Images'}
               </label>
               <input
                 ref={imageFileInputRef}
@@ -451,7 +705,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
               <div className="grid grid-cols-4 gap-4">
                 {formData.images?.urls?.map((url, index) => (
                   <div key={index} className="relative">
-                    <img src={url} alt={`Property ${index + 1}`} className="w-full h-32 object-cover rounded-lg" />
+                    <img src={url} alt={`${isBank ? 'Asset' : 'Property'} ${index + 1}`} className="w-full h-32 object-cover rounded-lg" />
                     <button
                       type="button"
                       onClick={() => handleRemoveImage(index)}
@@ -475,9 +729,9 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                   onChange={(e) => setSelectedDocumentType(e.target.value)}
                   className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                 >
-                  <option value="brochure">Brochure</option>
-                  <option value="floorPlan">Floor Plan</option>
-                  <option value="compliance">Compliance Document</option>
+                  <option value="brochure">{getDocumentLabel(formData.assetCategory, 'brochure')}</option>
+                  <option value="floorPlan">{getDocumentLabel(formData.assetCategory, 'floorPlan')}</option>
+                  <option value="compliance">{getDocumentLabel(formData.assetCategory, 'compliance')}</option>
                 </select>
                 <input
                   ref={documentFileInputRef}
@@ -505,7 +759,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                       <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
                       <div>
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          Brochure: {formData.documents.brochure.name || 'Brochure Document'}
+                          {getDocumentLabel(formData.assetCategory, 'brochure')}: {formData.documents.brochure.name || 'Document'}
                         </p>
                         {formData.documents.brochure.url && (
                           <a
@@ -542,7 +796,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
                       <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                       <div>
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          Floor Plan: {formData.documents.floorPlan.name || 'Floor Plan Document'}
+                          {getDocumentLabel(formData.assetCategory, 'floorPlan')}: {formData.documents.floorPlan.name || 'Document'}
                         </p>
                         {formData.documents.floorPlan.url && (
                           <a
@@ -575,7 +829,7 @@ const PropertyRequestForm = ({ onSave, onCancel, isLoading, inline = false }) =>
 
                 {formData.documents.compliance && formData.documents.compliance.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Compliance Documents:</p>
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{getDocumentLabel(formData.assetCategory, 'compliance')}s:</p>
                     {formData.documents.compliance.map((doc, index) => (
                       <div key={index} className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
                         <div className="flex items-center gap-3">

@@ -38,6 +38,7 @@ import { useToast } from '../../components/ui/Toast';
 import { cn } from '../../utils/cn';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
 import { formatExactPrice, formatFullPrice } from '../../utils/formatPrice';
+import { getTypeLabel, isBankAsset } from '../../utils/assetCategories';
 import Loader from '../../components/Loder';
 import InputTwo from '../../components/ui/InputTwo';
 
@@ -191,15 +192,15 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   const getOrganizationLogo = (property) => {
     // First check if organization object is already populated
     if (property.organization?.logoUrl) {
-      console.log('✅ Found logoUrl in property.organization.logoUrl:', property.organization.logoUrl);
+      console.log('âœ… Found logoUrl in property.organization.logoUrl:', property.organization.logoUrl);
       return property.organization.logoUrl;
     }
     if (property.organization?.logo_url) {
-      console.log('✅ Found logoUrl in property.organization.logo_url:', property.organization.logo_url);
+      console.log('âœ… Found logoUrl in property.organization.logo_url:', property.organization.logo_url);
       return property.organization.logo_url;
     }
     if (property.organizationLogoUrl) {
-      console.log('✅ Found logoUrl in property.organizationLogoUrl:', property.organizationLogoUrl);
+      console.log('âœ… Found logoUrl in property.organizationLogoUrl:', property.organizationLogoUrl);
       return property.organizationLogoUrl;
     }
     
@@ -208,7 +209,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       const orgs = organizationsData?.data?.data?.organizations || organizationsData?.data?.organizations || (Array.isArray(organizationsData?.data) ? organizationsData.data : []);
       const orgId = property.organizationId || property.organization_id || property.organization?.id || property.organization?.displayCode;
       
-      console.log('🔍 Looking for organization with ID:', orgId, 'in', orgs.length, 'organizations');
+      console.log('ðŸ” Looking for organization with ID:', orgId, 'in', orgs.length, 'organizations');
       
       if (orgId && orgs.length > 0) {
         const org = orgs.find(o => 
@@ -219,25 +220,25 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         );
         
         if (org) {
-          console.log('✅ Found organization:', org.name, 'logoUrl:', org.logoUrl || org.logo_url);
+          console.log('âœ… Found organization:', org.name, 'logoUrl:', org.logoUrl || org.logo_url);
           if (org.logoUrl) return org.logoUrl;
           if (org.logo_url) return org.logo_url;
         } else {
-          console.log('❌ Organization not found for ID:', orgId);
+          console.log('âŒ Organization not found for ID:', orgId);
         }
       }
     } else {
-      console.log('⚠️ Organizations data not loaded yet');
+      console.log('âš ï¸ Organizations data not loaded yet');
     }
     
-    console.log('❌ No logo URL found for property:', property.title);
+    console.log('âŒ No logo URL found for property:', property.title);
     return null;
   };
 
   // Update property status mutation - PATCH only the status field
   const updateStatusMutation = useMutation(
     ({ id, status }) => {
-      console.log('🔄 Sending PATCH request to update status:', { id, status });
+      console.log('ðŸ”„ Sending PATCH request to update status:', { id, status });
       return adminAPI.updatePropertyStatus(id, { status });
     },
     {
@@ -246,10 +247,10 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         setShowModal(false);
         setSelectedProperty(null);
         setStatusModalOpen(null);
-        console.log('✅ Property status updated successfully:', response);
+        console.log('âœ… Property status updated successfully:', response);
       },
       onError: (error) => {
-        console.error('❌ Failed to update property status:', error);
+        console.error('âŒ Failed to update property status:', error);
         console.error('Error details:', {
           message: error.message,
           response: error.response?.data,
@@ -258,23 +259,23 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           method: error.config?.method
         });
         
-        let errorMessage = '❌ Failed to update property status\n\n';
+        let errorMessage = 'âŒ Failed to update property status\n\n';
         
         if (error.response?.status === 404) {
-          errorMessage += '⚠️ Endpoint Not Found (404)\n\n';
+          errorMessage += 'âš ï¸ Endpoint Not Found (404)\n\n';
           errorMessage += `The backend endpoint PATCH /properties/:id is not implemented yet.\n\n`;
-          errorMessage += '📋 Backend Team To-Do:\n';
+          errorMessage += 'ðŸ“‹ Backend Team To-Do:\n';
           errorMessage += '1. Implement PATCH /properties/:id endpoint\n';
           errorMessage += '2. Accept partial updates like: { status: "active" }\n';
           errorMessage += '3. Return updated property data\n\n';
-          errorMessage += '💡 Note: Frontend is sending PATCH with only { status: "..." }';
+          errorMessage += 'ðŸ’¡ Note: Frontend is sending PATCH with only { status: "..." }';
         } else if (error.message === 'Network Error') {
-          errorMessage += '⚠️ CORS or Network Error\n\n';
+          errorMessage += 'âš ï¸ CORS or Network Error\n\n';
           errorMessage += 'Possible causes:\n';
           errorMessage += '1. Backend CORS not allowing PATCH method\n';
           errorMessage += '2. Backend endpoint not implemented\n';
           errorMessage += '3. Network connectivity issue\n\n';
-          errorMessage += '💡 Check browser console for CORS errors';
+          errorMessage += 'ðŸ’¡ Check browser console for CORS errors';
         } else {
           errorMessage += error.response?.data?.message || error.message;
         }
@@ -288,7 +289,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   const createPropertyMutation = useMutation(
     (propertyData) => {
       // Explicitly verify images and documents are included
-      console.log('📤 Creating new property:', {
+      console.log('ðŸ“¤ Creating new property:', {
         endpoint: 'POST /properties',
         hasImages: 'images' in propertyData,
         imagesCount: propertyData?.images?.length || 0,
@@ -300,7 +301,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       
       // Ensure images field is present (even if empty)
       if (!propertyData.images) {
-        console.warn('⚠️ Images field missing! Adding empty array.');
+        console.warn('âš ï¸ Images field missing! Adding empty array.');
         propertyData.images = [];
       }
       
@@ -310,15 +311,15 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           typeof img === 'string' && img.length > 0
         );
         if (!allValid) {
-          console.error('❌ Some images have invalid format!', propertyData.images);
+          console.error('âŒ Some images have invalid format!', propertyData.images);
         } else {
-          console.log('✅ All images are valid and will be sent to backend');
+          console.log('âœ… All images are valid and will be sent to backend');
         }
       }
       
       // Ensure documents field is present (even if empty)
       if (!propertyData.documents) {
-        console.warn('⚠️ Documents field missing! Adding empty array.');
+        console.warn('âš ï¸ Documents field missing! Adding empty array.');
         propertyData.documents = [];
       }
       
@@ -328,9 +329,9 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           doc && typeof doc === 'object' && doc.url && doc.name && doc.type
         );
         if (!allValid) {
-          console.error('❌ Some documents have invalid format!', propertyData.documents);
+          console.error('âŒ Some documents have invalid format!', propertyData.documents);
         } else {
-          console.log('✅ All documents are valid and will be sent to backend');
+          console.log('âœ… All documents are valid and will be sent to backend');
         }
       }
       
@@ -342,7 +343,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         setShowPropertyForm(false);
         setEditingProperty(null);
         setActionPanel(null);
-        console.log('✅ Property created successfully:', response);
+        console.log('âœ… Property created successfully:', response);
         
         const newProperty = response?.data?.data || response?.data;
         const propertyId = newProperty?.id || newProperty?.displayCode;
@@ -360,20 +361,20 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         
         if (propertyId && hasDocuments) {
           try {
-            console.log('📤 PATCH posting documents to blocks backend for property:', propertyId, propertyData.documents);
+            console.log('ðŸ“¤ PATCH posting documents to blocks backend for property:', propertyId, propertyData.documents);
             await blocksBackendAPI.postPropertyDocuments(propertyId, propertyData.documents);
-            console.log('✅ Documents posted to blocks backend successfully');
+            console.log('âœ… Documents posted to blocks backend successfully');
           } catch (docError) {
-            console.error('⚠️ Failed to post documents to blocks backend:', docError);
+            console.error('âš ï¸ Failed to post documents to blocks backend:', docError);
             // Don't fail the whole operation if documents posting fails
-            console.warn('⚠️ Property created but documents not saved to blocks backend');
+            console.warn('âš ï¸ Property created but documents not saved to blocks backend');
           }
         }
         
         // Create token tiers if provided
         if (propertyId && propertyData._tokenTiers && Array.isArray(propertyData._tokenTiers) && propertyData._tokenTiers.length > 0) {
           try {
-            console.log('🏗️ Creating token tiers for property:', propertyId, propertyData._tokenTiers);
+            console.log('ðŸ—ï¸ Creating token tiers for property:', propertyId, propertyData._tokenTiers);
             
             const tokenPromises = propertyData._tokenTiers.map((tier, index) => {
               const tokenData = {
@@ -394,10 +395,10 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
             });
             
             await Promise.all(tokenPromises);
-            console.log('✅ All token tiers created successfully');
+            console.log('âœ… All token tiers created successfully');
             toast.success(`Property "${displayCode}" created with ${propertyData._tokenTiers.length} token tier(s)!`);
           } catch (tokenError) {
-            console.error('❌ Failed to create token tiers:', tokenError);
+            console.error('âŒ Failed to create token tiers:', tokenError);
             toast.error(`Property "${displayCode}" created but failed to create token tiers. Please add them manually.`);
           }
         } else {
@@ -405,7 +406,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         }
       },
       onError: (error) => {
-        console.error('❌ Failed to create property:', error);
+        console.error('âŒ Failed to create property:', error);
         console.error('Full error response:', error.response);
         console.error('Error details:', {
           message: error.message,
@@ -416,10 +417,10 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           sentData: error.config?.data
         });
         
-        let errorMessage = '❌ Failed to create property\n\n';
+        let errorMessage = 'âŒ Failed to create property\n\n';
         
         if (error.response?.status === 400) {
-          errorMessage += '⚠️ Validation Error\n\n';
+          errorMessage += 'âš ï¸ Validation Error\n\n';
           const responseData = error.response?.data;
           const validationErrors = responseData?.message || responseData?.errors || responseData;
           
@@ -440,23 +441,23 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           } else if (typeof validationErrors === 'object' && validationErrors !== null) {
             errorMessage += 'Please fix the following:\n';
             Object.entries(validationErrors).forEach(([field, msg]) => {
-              errorMessage += `• ${field}: ${JSON.stringify(msg)}\n`;
+              errorMessage += `â€¢ ${field}: ${JSON.stringify(msg)}\n`;
             });
           } else {
             errorMessage += validationErrors || 'Please check all required fields.';
           }
           
-          errorMessage += '\n\n📋 Check console for full error details.';
+          errorMessage += '\n\nðŸ“‹ Check console for full error details.';
         } else if (error.response?.status === 404) {
-          errorMessage += '⚠️ Endpoint Not Found (404)\n\n';
+          errorMessage += 'âš ï¸ Endpoint Not Found (404)\n\n';
           errorMessage += 'The backend endpoint POST /properties is not available.\n\n';
-          errorMessage += '📋 Backend Team To-Do:\n';
+          errorMessage += 'ðŸ“‹ Backend Team To-Do:\n';
           errorMessage += '1. Implement POST /properties endpoint\n';
           errorMessage += '2. Accept property data in request body\n';
           errorMessage += '3. Create property in database\n';
           errorMessage += '4. Return created property with displayCode';
         } else if (error.message === 'Network Error') {
-          errorMessage += '⚠️ Network/CORS Error\n\n';
+          errorMessage += 'âš ï¸ Network/CORS Error\n\n';
           errorMessage += 'Possible causes:\n';
           errorMessage += '1. Backend server is down\n';
           errorMessage += '2. CORS not allowing POST method\n';
@@ -474,7 +475,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   const updatePropertyMutation = useMutation(
     ({ id, data }) => {
       // Explicitly verify images and documents are included
-      console.log('📤 Updating property:', {
+      console.log('ðŸ“¤ Updating property:', {
         endpoint: `PATCH /properties/${id}`,
         hasImages: 'images' in data,
         imagesCount: data?.images?.length || 0,
@@ -486,7 +487,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       
       // Ensure images field is present (even if empty)
       if (!data.images) {
-        console.warn('⚠️ Images field missing in update! Adding empty array.');
+        console.warn('âš ï¸ Images field missing in update! Adding empty array.');
         data.images = [];
       }
       
@@ -496,15 +497,15 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           typeof img === 'string' && img.length > 0
         );
         if (!allValid) {
-          console.error('❌ Some images have invalid format!', data.images);
+          console.error('âŒ Some images have invalid format!', data.images);
         } else {
-          console.log('✅ All images are valid and will be sent to backend');
+          console.log('âœ… All images are valid and will be sent to backend');
         }
       }
       
       // Ensure documents field is present (even if empty)
       if (!data.documents) {
-        console.warn('⚠️ Documents field missing in update! Adding empty array.');
+        console.warn('âš ï¸ Documents field missing in update! Adding empty array.');
         data.documents = [];
       }
       
@@ -514,9 +515,9 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           doc && typeof doc === 'object' && doc.url && doc.name && doc.type
         );
         if (!allValid) {
-          console.error('❌ Some documents have invalid format!', data.documents);
+          console.error('âŒ Some documents have invalid format!', data.documents);
         } else {
-          console.log('✅ All documents are valid and will be sent to backend');
+          console.log('âœ… All documents are valid and will be sent to backend');
         }
       }
       
@@ -552,21 +553,21 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         
         if (id && hasDocuments) {
           try {
-            console.log('📤 PATCH updating documents in blocks backend for property:', id, data.documents);
+            console.log('ðŸ“¤ PATCH updating documents in blocks backend for property:', id, data.documents);
             await blocksBackendAPI.updatePropertyDocuments(id, data.documents);
-            console.log('✅ Documents updated in blocks backend successfully');
+            console.log('âœ… Documents updated in blocks backend successfully');
           } catch (docError) {
-            console.error('⚠️ Failed to update documents in blocks backend:', docError);
+            console.error('âš ï¸ Failed to update documents in blocks backend:', docError);
             // Don't fail the whole operation if documents update fails
-            console.warn('⚠️ Property updated but documents not saved to blocks backend');
+            console.warn('âš ï¸ Property updated but documents not saved to blocks backend');
           }
         }
         
         toast.success('Property updated successfully!');
       },
       onError: (error, variables) => {
-        console.error('❌ Failed to update property:', error);
-        console.error('📋 Error details:', {
+        console.error('âŒ Failed to update property:', error);
+        console.error('ðŸ“‹ Error details:', {
           message: error.message,
           response: error.response?.data,
           status: error.response?.status,
@@ -577,28 +578,28 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         
         // Log the full response for debugging
         if (error.response?.data) {
-          console.error('🔍 Backend Error Response:', JSON.stringify(error.response.data, null, 2));
+          console.error('ðŸ” Backend Error Response:', JSON.stringify(error.response.data, null, 2));
         }
         
         // Log the data that was sent for debugging
         const sentData = variables?.data || error.config?.data;
         if (sentData) {
-          console.error('📤 Data that was sent:', JSON.stringify(sentData, null, 2));
+          console.error('ðŸ“¤ Data that was sent:', JSON.stringify(sentData, null, 2));
         }
         
-        let errorMessage = '❌ Failed to update property\n\n';
+        let errorMessage = 'âŒ Failed to update property\n\n';
         
         if (error.response?.status === 404) {
-          errorMessage += '⚠️ Endpoint Not Found (404)\n\n';
+          errorMessage += 'âš ï¸ Endpoint Not Found (404)\n\n';
           errorMessage += `The backend endpoint PATCH /properties/:id is not implemented yet.\n\n`;
-          errorMessage += '📋 Backend Team To-Do:\n';
+          errorMessage += 'ðŸ“‹ Backend Team To-Do:\n';
           errorMessage += '1. Implement PATCH /properties/:id endpoint\n';
           errorMessage += '2. Accept partial property data in request body\n';
           errorMessage += '3. Update property fields in database\n';
           errorMessage += '4. Return updated property data\n\n';
-          errorMessage += '💡 Current Status: Frontend is ready, waiting for backend implementation.';
+          errorMessage += 'ðŸ’¡ Current Status: Frontend is ready, waiting for backend implementation.';
         } else if (error.response?.status === 400) {
-          errorMessage += '⚠️ Validation Error (400)\n\n';
+          errorMessage += 'âš ï¸ Validation Error (400)\n\n';
           const backendMessage = error.response?.data?.message || error.response?.data?.error || 'Please check all required fields.';
           errorMessage += backendMessage;
           
@@ -606,7 +607,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           if (error.response?.data?.errors) {
             errorMessage += '\n\nField Errors:\n';
             Object.entries(error.response.data.errors).forEach(([field, message]) => {
-              errorMessage += `• ${field}: ${message}\n`;
+              errorMessage += `â€¢ ${field}: ${message}\n`;
             });
           }
         } else {
@@ -618,7 +619,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     }
   );
 
-  // Delete property mutation
+  // Delete Asset mutation
   const deletePropertyMutation = useMutation(
     (id) => adminAPI.deleteProperty(id),
     {
@@ -631,7 +632,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         toast.success('Property deleted successfully!');
       },
       onError: (error) => {
-        console.error('Failed to delete property:', error);
+        console.error('Failed to Delete Asset:', error);
         console.error('Error details:', {
           message: error.message,
           response: error.response?.data,
@@ -639,20 +640,20 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
           endpoint: error.config?.url
         });
         
-        let errorMessage = '❌ Failed to delete property\n\n';
+        let errorMessage = 'âŒ Failed to Delete Asset\n\n';
         
         if (error.response?.status === 404) {
-          errorMessage += '⚠️ Endpoint Not Found (404)\n\n';
+          errorMessage += 'âš ï¸ Endpoint Not Found (404)\n\n';
           errorMessage += `The backend endpoint DELETE /properties/:id is not implemented yet.\n\n`;
-          errorMessage += '📋 Backend Team To-Do:\n';
+          errorMessage += 'ðŸ“‹ Backend Team To-Do:\n';
           errorMessage += '1. Implement DELETE /properties/:id endpoint\n';
           errorMessage += '2. Check if property has active investments\n';
           errorMessage += '3. Prevent deletion if funded\n';
-          errorMessage += '4. Delete property from database\n';
+          errorMessage += '4. Delete Asset from database\n';
           errorMessage += '5. Return success confirmation\n\n';
-          errorMessage += '💡 Current Status: Frontend is ready with delete protection, waiting for backend implementation.';
+          errorMessage += 'ðŸ’¡ Current Status: Frontend is ready with delete protection, waiting for backend implementation.';
         } else if (error.response?.status === 400) {
-          errorMessage += '⚠️ Cannot Delete\n\n';
+          errorMessage += 'âš ï¸ Cannot Delete\n\n';
           errorMessage += error.response?.data?.message || 'This property cannot be deleted.';
         } else {
           errorMessage += error.response?.data?.message || error.message;
@@ -731,7 +732,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     (data) => rewardsAPI.distributeRoi(data),
     {
       onSuccess: (response) => {
-        console.log('✅ Reward distributed successfully:', response);
+        console.log('âœ… Reward distributed successfully:', response);
         const result = response?.data || response;
         setRewardDistributionResult(result);
         queryClient.invalidateQueries(['admin-properties']);
@@ -745,7 +746,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         toast.success(message);
       },
       onError: (error) => {
-        console.error('❌ Failed to distribute reward:', error);
+        console.error('âŒ Failed to distribute reward:', error);
         const errorMsg = error.response?.data?.message || error.message || 'Unknown error';
         toast.error(`Failed to distribute reward: ${errorMsg}`);
       }
@@ -785,7 +786,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       totalRoiUSDT: parseFloat(rewardAmount)
     };
     
-    console.log('🚀 Distributing reward with payload:', payload);
+    console.log('ðŸš€ Distributing reward with payload:', payload);
     distributeRewardMutation.mutate(payload);
   };
 
@@ -886,7 +887,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                      };
 
   // Debug logging
-  console.log('📦 Properties API Response:', {
+  console.log('ðŸ“¦ Properties API Response:', {
     raw: propertiesData,
     parsed: properties,
     pagination: pagination,
@@ -896,9 +897,9 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
   
   // Log each property for detailed inspection
   if (properties.length > 0) {
-    console.log(`✅ Found ${properties.length} properties`);
+    console.log(`âœ… Found ${properties.length} properties`);
     properties.forEach((property, index) => {
-      console.log(`🏢 Property ${index + 1}:`, {
+      console.log(`ðŸ¢ Property ${index + 1}:`, {
         id: property.id,
         displayCode: property.displayCode,
         title: property.title,
@@ -909,7 +910,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       });
     });
   } else {
-    console.warn('⚠️ No properties found in response');
+    console.warn('âš ï¸ No assets found in response');
     console.log('Check if backend has properties:', `${API_BASE_URL}/properties`);
   }
 
@@ -931,7 +932,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
   const confirmStatusUpdate = () => {
     if (selectedProperty) {
-      console.log('📤 Updating property status:', {
+      console.log('ðŸ“¤ Updating property status:', {
         displayCode: selectedProperty.displayCode,
         propertyTitle: selectedProperty.title,
         newStatus: selectedProperty.status,
@@ -968,17 +969,17 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     
     if (propertyId) {
       try {
-        console.log('📥 Fetching full property data for editing:', propertyId);
+        console.log('ðŸ“¥ Fetching full property data for editing:', propertyId);
         // Fetch property with tokens included
         const response = await propertiesAPI.getById(propertyId, { includeTokens: true });
         const fullProperty = response?.data?.data || response?.data || response;
-        console.log('✅ Fetched full property data from backend:', fullProperty);
-        console.log('📦 Property tokens:', fullProperty.tokens);
+        console.log('âœ… Fetched full property data from backend:', fullProperty);
+        console.log('ðŸ“¦ Property tokens:', fullProperty.tokens);
         setEditingProperty(fullProperty);
         setShowPropertyForm(true);
         setActionPanel('edit');
       } catch (error) {
-        console.error('❌ Failed to fetch property data, using existing data:', error);
+        console.error('âŒ Failed to fetch property data, using existing data:', error);
         // Fallback to existing property data if fetch fails
         setEditingProperty(property);
         setShowPropertyForm(true);
@@ -1098,7 +1099,17 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
     const typeMap = {
       'residential': 'bg-blue-100 text-blue-800',
       'commercial': 'bg-green-100 text-green-800',
-      'mixed-use': 'bg-purple-100 text-purple-800'
+      'mixed': 'bg-purple-100 text-purple-800',
+      'sukuk': 'bg-emerald-100 text-emerald-800',
+      'government_security': 'bg-sky-100 text-sky-800',
+      'corporate_bond': 'bg-indigo-100 text-indigo-800',
+      'mortgage': 'bg-amber-100 text-amber-800',
+      'auto': 'bg-orange-100 text-orange-800',
+      'personal': 'bg-rose-100 text-rose-800',
+      'business': 'bg-violet-100 text-violet-800',
+      'invoice': 'bg-cyan-100 text-cyan-800',
+      'bill': 'bg-teal-100 text-teal-800',
+      'trade_receivable': 'bg-lime-100 text-lime-800',
     };
     return typeMap[type] || 'bg-muted text-muted-foreground';
   };
@@ -1201,12 +1212,12 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-card-foreground">Properties Management</h2>
+          <h2 className="text-2xl font-bold text-card-foreground">Assets Management</h2>
           <p className="text-muted-foreground">
-            Manage all properties in your platform
+            Manage all assets in your platform
             {!actionPanel && properties.length > 0 && (
               <span className="ml-2 text-blue-600 font-semibold">
-                ({properties.length} {properties.length === 1 ? 'property' : 'properties'} found)
+                ({properties.length} {properties.length === 1 ? 'asset' : 'assets'} found)
               </span>
             )}
           </p>
@@ -1214,7 +1225,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
         {!actionPanel && (
           <Button onClick={handleCreateProperty} className="flex items-center space-x-2">
             <Plus className="w-4 h-4" />
-            <span>Add Property</span>
+            <span>Add Asset</span>
           </Button>
         )}
         {actionPanel && (
@@ -1267,14 +1278,14 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 {/* Search Input - Takes most space */}
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-foreground mb-1">
-                    Search Properties
+                    Search Assets
                   </label>
                   <div className="relative">
                     <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                     <InputTwo
                       type="text"
                       name="search"
-                      placeholder="Search by name, location, code..."
+                      placeholder="Search by name, custody location, code..."
                       value={filters.search}
                       onChange={(e) => handleFilterChange("search", e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
@@ -1308,7 +1319,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                     <span className={cn(
                       "transition-transform duration-200",
                       openFilterPanel === 'main' ? "rotate-180" : ""
-                    )}>▼</span>
+                    )}>â–¼</span>
                   </button>
                 </div>
               </div>
@@ -1353,7 +1364,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                                   : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-slate-700"
                               )}
                             >
-                              {isActive && <span className="text-xs">✓</span>}
+                              {isActive && <span className="text-xs">âœ“</span>}
                               {option.label}
                             </button>
                           );
@@ -1370,11 +1381,11 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       )}
                     </div>
 
-                    {/* Property Type Section - Multi-select */}
+                    {/* Asset Type Section - Multi-select */}
                     <div className="space-y-3">
                       <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
                         <span className="w-1 h-4 bg-green-600 rounded-full"></span>
-                        Property Type
+                        Asset Type
                         {Array.isArray(filters.property_type) && filters.property_type.length > 0 && (
                           <span className="ml-2 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-medium">
                             {filters.property_type.length} selected
@@ -1383,9 +1394,18 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       </h4>
                       <div className="flex flex-wrap gap-2">
                         {[
+                          { value: 'sukuk', label: 'Sukuk' },
+                          { value: 'government_security', label: 'Government Security' },
+                          { value: 'corporate_bond', label: 'Corporate Bond' },
+                          { value: 'mortgage', label: 'Mortgage' },
+                          { value: 'auto', label: 'Car / Auto' },
+                          { value: 'personal', label: 'Personal' },
+                          { value: 'business', label: 'Business' },
+                          { value: 'invoice', label: 'Invoices' },
+                          { value: 'bill', label: 'Bills of Exchange' },
+                          { value: 'trade_receivable', label: 'Trade Receivables' },
                           { value: 'residential', label: 'Residential' },
                           { value: 'commercial', label: 'Commercial' },
-                          { value: 'mixed-use', label: 'Mixed Use' }
                         ].map((option) => {
                           const isActive = Array.isArray(filters.property_type) && filters.property_type.includes(option.value);
                           return (
@@ -1400,7 +1420,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                                   : "bg-white/60 dark:bg-slate-800/60 text-card-foreground border-slate-300 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-slate-700"
                               )}
                             >
-                              {isActive && <span className="text-xs">✓</span>}
+                              {isActive && <span className="text-xs">âœ“</span>}
                               {option.label}
                             </button>
                           );
@@ -1458,8 +1478,8 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       </h4>
                       <div className="flex flex-wrap gap-2">
                         {[
-                          { value: 'desc', label: 'Descending ↓' },
-                          { value: 'asc', label: 'Ascending ↑' }
+                          { value: 'desc', label: 'Descending â†“' },
+                          { value: 'asc', label: 'Ascending â†‘' }
                         ].map((option) => {
                           const isActive = filters.sort_order === option.value;
                           return (
@@ -1514,18 +1534,13 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   
                   {/* Property Type chips - show each selected type */}
                   {Array.isArray(filters.property_type) && filters.property_type.length > 0 && filters.property_type.map((type) => {
-                    const typeLabels = {
-                      'residential': 'Residential',
-                      'commercial': 'Commercial',
-                      'mixed-use': 'Mixed Use'
-                    };
                     return (
                       <div 
                         key={type}
                         className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors shadow-sm"
                         onClick={() => toggleFilter('property_type', type)}
                       >
-                        <span>Type: {typeLabels[type] || type}</span>
+                        <span>Type: {getTypeLabel(null, type)}</span>
                         <X className="w-3 h-3" />
                       </div>
                     );
@@ -1545,7 +1560,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                     <span>{filters.sort_by === 'created_at' ? 'Date' : 
                               filters.sort_by === 'title' ? 'Title' :
                               filters.sort_by === 'pricing_total_value' ? 'Value' : 'ROI'}</span>
-                    <span>{filters.sort_order === 'desc' ? '↓' : '↑'}</span>
+                    <span>{filters.sort_order === 'desc' ? 'â†“' : 'â†‘'}</span>
                   </div>
                 </div>
               )}
@@ -1559,7 +1574,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
               <Card variant="primary" className="p-12">
                 <div className="flex flex-col items-center text-center">
                   <Building2 className="w-16 h-16 text-muted-foreground mb-4 opacity-50" />
-                  <p className="text-lg font-semibold text-card-foreground mb-2">No properties found</p>
+                  <p className="text-lg font-semibold text-card-foreground mb-2">No assets found</p>
                   <p className="text-sm text-muted-foreground">Try adjusting your filters or add a new property</p>
                 </div>
               </Card>
@@ -1609,29 +1624,29 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 const isDisabled = fundingPercentage > 0;
                 
                 // Debug logging for all properties
-                console.log(`🏢 ${mappedProperty.title}:`, {
-                  '📦 RAW BACKEND DATA': property,
-                  '🔄 MAPPED DATA': mappedProperty,
-                  '💰 Price Fields Found': {
+                console.log(`ðŸ¢ ${mappedProperty.title}:`, {
+                  'ðŸ“¦ RAW BACKEND DATA': property,
+                  'ðŸ”„ MAPPED DATA': mappedProperty,
+                  'ðŸ’° Price Fields Found': {
                     purchasePriceUSDT: property.purchasePriceUSDT,
                     totalValueUSDT: property.totalValueUSDT,
                     pricing_total_value: property.pricing_total_value,
                     totalValue: property.totalValue,
                     price: property.price,
-                    '✅ USING': mappedProperty.pricing_total_value
+                    'âœ… USING': mappedProperty.pricing_total_value
                   },
-                  '📊 ROI Fields Found': {
+                  'ðŸ“Š ROI Fields Found': {
                     expectedROI: property.expectedROI,
                     roi: property.roi,
-                    '✅ USING': mappedProperty.pricing_expected_roi
+                    'âœ… USING': mappedProperty.pricing_expected_roi
                   },
-                  '🎫 Token Fields Found': {
+                  'ðŸŽ« Token Fields Found': {
                     totalTokens: property.totalTokens,
                     availableTokens: property.availableTokens,
-                    '✅ USING Total': mappedProperty.tokenization_total_tokens,
-                    '✅ USING Available': mappedProperty.tokenization_available_tokens
+                    'âœ… USING Total': mappedProperty.tokenization_total_tokens,
+                    'âœ… USING Available': mappedProperty.tokenization_available_tokens
                   },
-                  '📈 Funding': fundingPercentage + '%'
+                  'ðŸ“ˆ Funding': fundingPercentage + '%'
                 });
                 const statusInfo = getStatusBadge(mappedProperty.status);
                 const propertyImage = getPropertyImage(mappedProperty);
@@ -1721,12 +1736,14 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         </div>
                       </div>
 
-                      {/* Property Type Badge */}
-                      <div>
-                        <Badge className={`${getPropertyTypeColor(mappedProperty.property_type)} text-xs`}>
-                          {mappedProperty.property_type}
-                        </Badge>
-                      </div>
+                      {/* Property Type Badge — category shown on detail view only */}
+                      {!isBankAsset(property.assetCategory) && (
+                        <div className="flex flex-wrap gap-1">
+                          <Badge className={`${getPropertyTypeColor(mappedProperty.property_type)} text-xs`}>
+                            {getTypeLabel(property.assetCategory, mappedProperty.property_type)}
+                          </Badge>
+                        </div>
+                      )}
 
                       {/* Metrics Grid */}
                       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border/50">
@@ -1775,9 +1792,9 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
             {actionPanel !== 'full-details' && actionPanel !== 'edit' && actionPanel !== 'funding' && (
               <div className="flex items-center justify-between mb-4 pb-4 border-b border-border ">
                 <h3 className="text-lg font-bold text-card-foreground">
-                  {actionPanel === 'add' && 'Add New Property'}
-                  {actionPanel === 'view' && 'Property Details'}
-                  {actionPanel === 'delete' && 'Delete Property'}
+                  {actionPanel === 'add' && 'Add New Asset'}
+                  {actionPanel === 'view' && 'Asset Details'}
+                  {actionPanel === 'delete' && 'Delete Asset'}
                 </h3>
                 <Button
                   variant="outline"
@@ -1803,7 +1820,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                 />
               )}
 
-              {/* Edit Property Form */}
+              {/* Edit Asset Form */}
               {actionPanel === 'edit' && editingProperty && (
                 <div className="space-y-4 ">
                   {/* Back to Details Button - Only show if we came from details view */}
@@ -2038,7 +2055,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                         className="flex items-center justify-center"
                       >
                         <Edit className="w-4 h-4 mr-2" />
-                        Edit Property
+                        Edit Asset
                       </Button>
                     </div>
                   </div>
@@ -2215,7 +2232,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       <AlertTriangle className="w-6 h-6 text-red-600" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-medium text-card-foreground">Delete Property</h3>
+                      <h3 className="text-lg font-medium text-card-foreground">Delete Asset</h3>
                       <p className="text-sm text-muted-foreground">This action cannot be undone</p>
                     </div>
                   </div>
@@ -2240,7 +2257,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
                   <p className="text-sm text-foreground">
                     Are you sure you want to delete this property? 
-                    This will deactivate the property listing and remove it from the platform.
+                    This will deactivate the asset listing and remove it from the platform.
                   </p>
                   
                   <div className="flex gap-2 pt-2">
@@ -2257,7 +2274,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       disabled={deletePropertyMutation.isLoading}
                       className="flex-1 bg-red-600 hover:bg-red-700 text-white"
                     >
-                      {deletePropertyMutation.isLoading ? 'Deleting...' : 'Delete Property'}
+                      {deletePropertyMutation.isLoading ? 'Deleting...' : 'Delete Asset'}
                     </Button>
                   </div>
                 </div>
@@ -2828,7 +2845,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                             handleEditProperty(fullProperty, true);
                           }}
                           className="flex items-center gap-2 hover:bg-accent transition-all"
-                          title="Edit Property"
+                          title="Edit Asset"
                         >
                           <Edit className="w-4 h-4" />
                           <span className="text-xs font-medium">Edit</span>
@@ -2862,7 +2879,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                           ) > 0 ? `Cannot delete - ${calculateFundingPercentage(
                             fullProperty.tokenization_total_tokens || fullProperty.totalTokens || 0,
                             fullProperty.tokenization_available_tokens || fullProperty.availableTokens || 0
-                          ).toFixed(1)}% funded` : 'Delete Property'}
+                          ).toFixed(1)}% funded` : 'Delete Asset'}
                         >
                           <Trash2 className="w-4 h-4" />
                           <span className="text-xs font-medium">Delete</span>
@@ -3121,7 +3138,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                     className="flex items-center"
                   >
                     <Edit className="w-4 h-4 mr-2" />
-                    Edit Property
+                    Edit Asset
                   </Button>
                 </div>
               </div>
@@ -3141,7 +3158,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-card-foreground">Delete Property</h3>
+                  <h3 className="text-lg font-medium text-card-foreground">Delete Asset</h3>
                   <p className="text-sm text-muted-foreground">This action cannot be undone</p>
                 </div>
               </div>
@@ -3171,7 +3188,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
 
               <p className="text-sm text-foreground mb-6">
                 Are you sure you want to delete this property? 
-                This will deactivate the property listing and remove it from the platform.
+                This will deactivate the asset listing and remove it from the platform.
               </p>
               
               <div className="flex justify-end space-x-3">
@@ -3190,7 +3207,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                   disabled={deletePropertyMutation.isLoading}
                   className="bg-red-600 hover:bg-red-700"
                 >
-                  {deletePropertyMutation.isLoading ? 'Deleting...' : 'Delete Property'}
+                  {deletePropertyMutation.isLoading ? 'Deleting...' : 'Delete Asset'}
                 </Button>
               </div>
             </div>
@@ -3321,7 +3338,7 @@ const PropertiesManagement = ({ initialFilters, onFiltersSet }) => {
                       }}
                     />
                     <p className="text-xs text-muted-foreground mt-2">
-                      💡 This amount will be distributed proportionally to all investors based on their token ownership
+                      ðŸ’¡ This amount will be distributed proportionally to all investors based on their token ownership
                     </p>
                   </div>
 

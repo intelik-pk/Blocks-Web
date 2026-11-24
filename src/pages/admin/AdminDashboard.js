@@ -35,6 +35,7 @@ import NotificationPopover from '../../components/notifications/NotificationPopo
 import MetricCards from '../../components/admin/MetricCards';
 import InvestmentChart from '../../components/admin/InvestmentChart';
 import { adminAPI, rewardsAPI, activitiesAPI } from '../../services/api';
+import { ASSET_CATEGORIES, getCategoryLabel, getTypeLabel } from '../../utils/assetCategories';
 import { useMutation, useQueryClient } from 'react-query';
 import { useAdminAuth } from '../../components/admin/AdminAuth';
 import PropertiesManagement from './PropertiesManagement';
@@ -265,7 +266,7 @@ const AdminDashboard = () => {
     () => {
       const adminId = adminUser?.id || adminUser?.userId || adminUser?._id;
       if (!adminId) return null;
-      console.log('🔄 Fetching Gmail status for admin:', adminId);
+      console.log('ðŸ”„ Fetching Gmail status for admin:', adminId);
       return adminAPI.getGmailStatus(adminId);
     },
     {
@@ -274,7 +275,7 @@ const AdminDashboard = () => {
       cacheTime: 0, // Don't cache the result
       retry: 1,
       onSuccess: (data) => {
-        console.log('✅ Gmail status received:', data?.data);
+        console.log('âœ… Gmail status received:', data?.data);
         if (data?.data?.status) {
           setGmailStatus(data.data.status);
         } else {
@@ -282,7 +283,7 @@ const AdminDashboard = () => {
         }
       },
       onError: (error) => {
-        console.log('❌ Gmail status fetch error:', error.message);
+        console.log('âŒ Gmail status fetch error:', error.message);
         setGmailStatus(null);
       }
     }
@@ -386,7 +387,7 @@ const AdminDashboard = () => {
                   kycData?.data || 
                   (Array.isArray(kycData) ? kycData : []);
 
-  console.log('📊 Analytics Data:', {
+  console.log('ðŸ“Š Analytics Data:', {
     raw: analyticsData,
     parsed: analytics,
     filter: analyticsFilter
@@ -598,31 +599,32 @@ const AdminDashboard = () => {
     // Prepare chart data - use real investment trends
     const investmentTrendData = timeSeries?.investments || [];
     
-    // Calculate property type breakdown from properties data
-    const propertyTypeCounts = {
-      residential: 0,
-      commercial: 0,
-      'mixed-use': 0,
-      other: 0
-    };
-    
-    properties.forEach(property => {
-      const propertyType = (property.type || property.property_type || property.propertyType || '').toLowerCase();
-      if (propertyType === 'residential') {
-        propertyTypeCounts.residential++;
-      } else if (propertyType === 'commercial') {
-        propertyTypeCounts.commercial++;
-      } else if (propertyType === 'mixed-use' || propertyType === 'mixed_use' || propertyType === 'mixeduse') {
-        propertyTypeCounts['mixed-use']++;
-      } else if (propertyType) {
-        propertyTypeCounts.other++;
-      }
+    // Asset class breakdown (prefer assetCategory, fall back to subtype)
+    const assetClassCounts = {};
+    properties.forEach((property) => {
+      const category = property.assetCategory || property.asset_category;
+      const type = property.type || property.property_type || property.propertyType;
+      const key = category || type || 'unknown';
+      assetClassCounts[key] = (assetClassCounts[key] || 0) + 1;
     });
-    
-    const residentialCount = propertyTypeCounts.residential;
-    const commercialCount = propertyTypeCounts.commercial;
-    const mixedUseCount = propertyTypeCounts['mixed-use'];
-    const totalPropertyTypes = residentialCount + commercialCount + mixedUseCount;
+
+    const ASSET_CHART_COLORS = [
+      '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444',
+      '#06b6d4', '#ec4899', '#84cc16', '#6366f1', '#14b8a6',
+    ];
+
+    const assetClassSegments = Object.entries(assetClassCounts)
+      .map(([key, count], index) => ({
+        key,
+        count,
+        label: ASSET_CATEGORIES[key]
+          ? getCategoryLabel(key)
+          : getTypeLabel(null, key) || key.replace(/_/g, ' '),
+        color: ASSET_CHART_COLORS[index % ASSET_CHART_COLORS.length],
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const totalPropertyTypes = assetClassSegments.reduce((sum, s) => sum + s.count, 0);
     
     // Calculate tokens sold per property (total - available)
     const propertiesWithTokensSold = properties.map(property => {
@@ -727,7 +729,7 @@ const AdminDashboard = () => {
       return sum + (total - available);
     }, 0);
 
-    // Calculate average ROI across all properties
+    // Calculate average ROI Across all assets
     const propertiesWithROI = properties.filter(prop => {
       const roi = parseFloat(prop.expectedROI || prop.pricing_expected_roi || prop.roi || 0);
       return roi > 0;
@@ -791,9 +793,18 @@ const AdminDashboard = () => {
     }
     // Helper function to convert technical endpoints to user-friendly titles
     const getFriendlyTitle = (activity) => {
-      const action = activity.action || '';
+      const rawAction = activity.action || '';
       const endpoint = activity.endpoint || '';
       const method = activity.method || '';
+
+      const actionAliases = {
+        'Property Created': 'Asset Created',
+        'Property Updated': 'Asset Updated',
+        'Property Deleted': 'Asset Deleted',
+        'New Property Request': 'New Asset Request',
+        'Property Request Updated': 'Asset Request Updated',
+      };
+      const action = actionAliases[rawAction] || rawAction;
       
       // If action is already user-friendly, use it
       if (action && !action.includes('/') && !action.includes('POST') && !action.includes('PATCH') && !action.includes('GET') && !action.includes('PUT') && !action.includes('DELETE')) {
@@ -810,11 +821,11 @@ const AdminDashboard = () => {
       }
       
       if (endpoint.includes('/property-requests') && method === 'PATCH') {
-        return 'Property Request Updated';
+        return 'Asset Request Updated';
       }
       
       if (endpoint.includes('/property-requests') && method === 'POST') {
-        return 'New Property Request';
+        return 'New Asset Request';
       }
       
       if (endpoint.includes('/kyc') && method === 'POST') {
@@ -834,11 +845,11 @@ const AdminDashboard = () => {
       }
       
       if (endpoint.includes('/properties') && method === 'PATCH') {
-        return 'Property Updated';
+        return 'Asset Updated';
       }
       
       if (endpoint.includes('/properties') && method === 'POST') {
-        return 'Property Created';
+        return 'Asset Created';
       }
       
       if (endpoint.includes('/organizations') && method === 'PATCH') {
@@ -908,7 +919,11 @@ const AdminDashboard = () => {
         }
       }
 
-      if (activity.action === 'Property Updated' || activity.action === 'Property Created') {
+      if (
+        activity.action === 'Property Updated' || activity.action === 'Property Created' ||
+        activity.action === 'Asset Updated' || activity.action === 'Asset Created' ||
+        activity.action === 'Property Deleted' || activity.action === 'Asset Deleted'
+      ) {
         icon = Edit;
         color = 'purple';
         onClick = () => {
@@ -1010,20 +1025,47 @@ const AdminDashboard = () => {
       // Helper to check if description is technical
       const isTechnicalDescription = (desc) => {
         if (!desc) return true;
-        return desc.startsWith('/') ||
-               desc.startsWith('POST') ||
-               desc.startsWith('PATCH') ||
-               desc.startsWith('GET') ||
-               desc.startsWith('PUT') ||
-               desc.startsWith('DELETE') ||
-               desc.includes('/api/') ||
-               desc === 'Activity' ||
-               desc === activity.endpoint;
+        const trimmed = String(desc).trim();
+        return trimmed.startsWith('/') ||
+               trimmed.startsWith('POST') ||
+               trimmed.startsWith('PATCH') ||
+               trimmed.startsWith('GET') ||
+               trimmed.startsWith('PUT') ||
+               trimmed.startsWith('DELETE') ||
+               trimmed.includes('/api/') ||
+               trimmed === 'Activity' ||
+               trimmed === 'Property' ||
+               trimmed === 'New Property' ||
+               trimmed === activity.endpoint;
       };
+
+      const extractAssetName = () => (
+        activity.requestBody?.title ||
+        activity.requestBody?.name ||
+        activity.responseData?.data?.title ||
+        activity.responseData?.data?.property?.title ||
+        activity.responseData?.title ||
+        activity.responseData?.property?.title ||
+        null
+      );
 
       // For login activities, ensure we show user name in description
       let finalDescription = activity.description;
-      if (activity.action === 'User Logged In' || activity.endpoint?.includes('/api/mobile/auth/login')) {
+      if (
+        activity.action === 'Property Created' || activity.action === 'Property Updated' ||
+        activity.action === 'Asset Created' || activity.action === 'Asset Updated' ||
+        activity.action === 'Property Deleted' || activity.action === 'Asset Deleted' ||
+        (activity.endpoint?.includes('/properties') && !activity.endpoint?.includes('/property-requests'))
+      ) {
+        const assetName = extractAssetName();
+        if (assetName) {
+          finalDescription = assetName;
+        } else if (activity.description && !isTechnicalDescription(activity.description)) {
+          finalDescription = activity.description;
+        } else {
+          finalDescription = 'Asset';
+        }
+      } else if (activity.action === 'User Logged In' || activity.endpoint?.includes('/api/mobile/auth/login')) {
         // Prefer userName from activity, then description, then user from responseData
         if (activity.userName) {
           finalDescription = activity.userName;
@@ -1188,7 +1230,7 @@ const AdminDashboard = () => {
             <div className="text-[9px] opacity-70 mt-1">Click to manage investments</div>
           </div>
 
-          {/* Total Properties */}
+          {/* Total Assets */}
           <Card
             variant="primary"
             onClick={() => setActiveTab('properties')}
@@ -1203,7 +1245,7 @@ const AdminDashboard = () => {
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-muted-foreground font-medium">Total Properties</div>
+              <div className="text-[10px] text-muted-foreground font-medium">Total Assets</div>
               <div className="text-xl font-extrabold text-card-foreground mt-0.5">
                 {totalProperties}
               </div>
@@ -1258,7 +1300,7 @@ const AdminDashboard = () => {
                 {totalOrganizations}
               </div>
               <div className="text-[9px] text-muted-foreground mt-0.5">
-                Managing properties
+                Managing assets
               </div>
             </div>
           </Card>
@@ -1298,7 +1340,7 @@ const AdminDashboard = () => {
               <div className="text-[9px] text-muted-foreground font-medium">Avg ROI</div>
             </div>
             <div className="text-lg font-bold text-card-foreground">{averageROI.toFixed(1)}%</div>
-            <div className="text-[8px] text-muted-foreground mt-0.5">Across all properties</div>
+            <div className="text-[8px] text-muted-foreground mt-0.5">Across all assets</div>
           </Card>
 
           {/* Total Tokens */}
@@ -1352,7 +1394,7 @@ const AdminDashboard = () => {
               <div className="text-[9px] text-muted-foreground font-medium">Funding</div>
             </div>
             <div className="text-lg font-bold text-card-foreground">{propertyStatusCounts.funding}</div>
-            <div className="text-[8px] text-muted-foreground mt-0.5">Properties</div>
+            <div className="text-[8px] text-muted-foreground mt-0.5">Assets</div>
           </Card>
 
           {/* KYC Pending */}
@@ -1376,7 +1418,7 @@ const AdminDashboard = () => {
           <Card variant="primary" className="p-4 rounded-3xl flex flex-col min-h-0 overflow-hidden">
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-sm font-bold text-card-foreground">
-                {showTopSellers ? '🔥 Top 5 Most Tokens Sold' : '📉 Top 5 Least Tokens Sold'}
+                {showTopSellers ? 'ðŸ”¥ Top 5 Most Tokens Sold' : 'ðŸ“‰ Top 5 Least Tokens Sold'}
               </h3>
               <button 
                 onClick={(e) => {
@@ -1414,7 +1456,7 @@ const AdminDashboard = () => {
                 );
               }) : (
                 <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-                  No properties with tokens
+                  No assets with tokens
                 </div>
               )}
             </div>
@@ -1429,7 +1471,7 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('properties')}
               className="mt-2 text-center text-[10px] text-blue-500 hover:text-blue-600 cursor-pointer"
             >
-              View All Properties →
+              View All Assets â†’
             </div>
           </Card>
 
@@ -1443,7 +1485,7 @@ const AdminDashboard = () => {
   <div className="flex justify-between items-center mb-4">
     <div>
       <h3 className="text-sm md:text-base font-bold text-card-foreground">
-        Property Types
+        Asset Classes
       </h3>
       <p className="text-[10px] text-muted-foreground mt-0.5">Distribution by category</p>
     </div>
@@ -1457,7 +1499,7 @@ const AdminDashboard = () => {
     <div
       className="
         relative 
-        aspect-square   /* <-- Makes width & height ALWAYS equal */
+        aspect-square
         w-28 h-28 
         sm:w-32 sm:h-32 
         md:w-40 md:h-40 
@@ -1466,18 +1508,6 @@ const AdminDashboard = () => {
       "
     >
       <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-        <defs>
-          <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#60a5fa" />
-          </linearGradient>
-          <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#10b981" />
-            <stop offset="100%" stopColor="#34d399" />
-          </linearGradient>
-        </defs>
-
-        {/* Background */}
         <circle
           cx="18" cy="18" r="15.9155"
           fill="none"
@@ -1485,72 +1515,45 @@ const AdminDashboard = () => {
           className="dark:stroke-gray-700"
           strokeWidth="3.8"
         />
-
-        {/* Blue (Residential) */}
-        <circle
-          cx="18" cy="18" r="15.9155"
-          fill="none"
-          stroke="url(#blueGrad)"
-          strokeWidth="3.8"
-          strokeDasharray={`${totalPropertyTypes > 0 ? (residentialCount / totalPropertyTypes * 100) : 0} ${totalPropertyTypes > 0 ? (100 - residentialCount / totalPropertyTypes * 100) : 100}`}
-          strokeLinecap="round"
-        />
-
-        {/* Green (Commercial) */}
-        <circle
-          cx="18" cy="18" r="15.9155"
-          fill="none"
-          stroke="url(#greenGrad)"
-          strokeWidth="3.8"
-          strokeDasharray={`${totalPropertyTypes > 0 ? (commercialCount / totalPropertyTypes * 100) : 0} ${totalPropertyTypes > 0 ? (100 - commercialCount / totalPropertyTypes * 100) : 100}`}
-          strokeLinecap="round"
-          strokeDashoffset={`-${totalPropertyTypes > 0 ? (residentialCount / totalPropertyTypes * 100) : 0}`}
-        />
-
-        {/* Gray (Mixed Use) */}
-        <circle
-          cx="18" cy="18" r="15.9155"
-          fill="none"
-          stroke="#9ca3af"
-          className="dark:stroke-gray-500"
-          strokeWidth="3.8"
-          strokeDasharray={`${totalPropertyTypes > 0 ? (mixedUseCount / totalPropertyTypes * 100) : 0} ${totalPropertyTypes > 0 ? (100 - mixedUseCount / totalPropertyTypes * 100) : 100}`}
-          strokeLinecap="round"
-          strokeDashoffset={`-${totalPropertyTypes > 0 ? ((residentialCount + commercialCount) / totalPropertyTypes * 100) : 0}`}
-        />
+        {(() => {
+          let offset = 0;
+          return assetClassSegments.map((segment) => {
+            const pct = totalPropertyTypes > 0 ? (segment.count / totalPropertyTypes) * 100 : 0;
+            const circle = (
+              <circle
+                key={segment.key}
+                cx="18" cy="18" r="15.9155"
+                fill="none"
+                stroke={segment.color}
+                strokeWidth="3.8"
+                strokeDasharray={`${pct} ${100 - pct}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="round"
+              />
+            );
+            offset += pct;
+            return circle;
+          });
+        })()}
       </svg>
     </div>
 
     {/* Legend Section */}
     <div className="flex-1 w-full">
       <div className="space-y-2 text-[11px] md:text-xs">
-        
-        <div className="flex justify-between items-center">
-          <span className="text-muted-foreground flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-            Residential
-          </span>
-          <span className="font-bold text-card-foreground">{residentialCount}</span>
-        </div>
-
-        <div className="flex justify-between items-center">
-          <span className="text-muted-foreground flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-green-500"></span>
-            Commercial
-          </span>
-          <span className="font-bold text-card-foreground">{commercialCount}</span>
-        </div>
-
-        {mixedUseCount > 0 && (
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></span>
-              Mixed-Use
-            </span>
-            <span className="font-bold text-card-foreground">{mixedUseCount}</span>
-          </div>
+        {assetClassSegments.length === 0 ? (
+          <div className="text-muted-foreground">No assets yet</div>
+        ) : (
+          assetClassSegments.map((segment) => (
+            <div key={segment.key} className="flex justify-between items-center">
+              <span className="text-muted-foreground flex items-center gap-1.5 capitalize">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: segment.color }}></span>
+                {segment.label}
+              </span>
+              <span className="font-bold text-card-foreground">{segment.count}</span>
+            </div>
+          ))
         )}
-
       </div>
     </div>
   </div>
@@ -1742,13 +1745,13 @@ const AdminDashboard = () => {
   };
 
   const renderTabContent = () => {
-    console.log('🔄 Active Tab:', activeTab);
+    console.log('ðŸ”„ Active Tab:', activeTab);
     
     switch (activeTab) {
       case 'overview':
         return renderOverview();
       case 'properties':
-        console.log('📦 Rendering PropertiesManagement');
+        console.log('ðŸ“¦ Rendering PropertiesManagement');
         return <PropertiesManagement initialFilters={tabFilters.properties} onFiltersSet={() => setTabFilters({ ...tabFilters, properties: undefined })} />;
       case 'property-requests':
         return <PropertyRequestsManagement />;
@@ -1846,7 +1849,7 @@ const AdminDashboard = () => {
               Admin Panel
             </h1>
             <p className="text-sm text-black/70 dark:text-white/70">
-              Real Estate Management
+              Asset Management
             </p>
           </div>
         </div>
@@ -1891,14 +1894,14 @@ const AdminDashboard = () => {
           <div ref={notificationIconRef} className="relative">
             <SafeAdminNotificationIcon 
               onToggle={() => {
-                console.log('🔔 Toggling notifications, current state:', showNotifications);
+                console.log('ðŸ”” Toggling notifications, current state:', showNotifications);
                 setShowNotifications(!showNotifications);
               }} 
             />
             <NotificationPopover
               isOpen={showNotifications}
               onClose={() => {
-                console.log('🔔 Closing notifications popover');
+                console.log('ðŸ”” Closing notifications popover');
                 setShowNotifications(false);
               }}
               anchorRef={notificationIconRef}

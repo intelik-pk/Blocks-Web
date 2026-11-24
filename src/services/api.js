@@ -368,6 +368,9 @@ export const adminAPI = {
   updateProperty: (id, data) => api.patch(`/properties/${id}`, data), // PATCH for full property updates
   deleteProperty: (id) => api.delete(`/properties/${id}`), // Not yet implemented
   updatePropertyStatus: (id, statusData) => api.patch(`/properties/${id}`, { status: statusData.status }), // PATCH only status field
+  // Bank assets: lift/re-apply demonstration-mode restriction (Blocks admin only)
+  setIssuanceRestriction: (id, issuanceRestricted, adminId) =>
+    api.patch(`/properties/${id}/issuance-restriction`, { issuanceRestricted, adminId }, adminId ? { headers: { 'x-admin-id': adminId } } : {}),
   
   // Investments - Use public endpoints
   getInvestments: (params) => api.get('/investments', { params }),

@@ -29,6 +29,8 @@ import Badge from '../../components/ui/Badge';
 import { organizationsAPI, propertiesAPI, investmentsAPI, walletTransactionsAPI } from '../../services/api';
 import { useOrganizationAuth } from '../../components/organization/OrganizationAuth';
 import { getPropertyImage, getPropertyImages, getPropertyDocuments } from '../../utils/formatLocation';
+import BankAssetSummary, { AssetCategoryBadge } from '../../components/assets/BankAssetSummary';
+import { getDocumentLabel, getTypeLabel, isBankAsset } from '../../utils/assetCategories';
 
 const OrgPropertyDetail = () => {
   const { propertyId } = useParams();
@@ -229,7 +231,7 @@ const OrgPropertyDetail = () => {
           color="yellow"
         />
         <StatCard
-          title="ROI"
+          title={isBankAsset(property.assetCategory) ? 'Expected Return' : 'ROI'}
           value={`${metrics.roi || 0}%`}
           icon={TrendingUp}
           color="purple"
@@ -258,20 +260,28 @@ const OrgPropertyDetail = () => {
         />
       </div>
 
-      {/* Property Information */}
+      <BankAssetSummary asset={property} />
+
+      {/* Asset / Property Information */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-card-foreground mb-4">Property Information</h3>
+        <h3 className="text-lg font-semibold text-card-foreground mb-4">
+          {isBankAsset(property.assetCategory) ? 'Asset Information' : 'Property Information'}
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Property Name</label>
+            <label className="block text-sm font-medium text-foreground mb-1">
+              {isBankAsset(property.assetCategory) ? 'Asset Name' : 'Property Name'}
+            </label>
             <p className="text-sm text-card-foreground">{property.title || property.name || 'N/A'}</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Type</label>
-            <p className="text-sm text-card-foreground capitalize">{property.type || property.property_type || 'N/A'}</p>
+            <p className="text-sm text-card-foreground capitalize">{getTypeLabel(property.assetCategory, property.type || property.property_type)}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Status</label>
+            <label className="block text-sm font-medium text-foreground mb-1">
+              {isBankAsset(property.assetCategory) ? 'Offering Status' : 'Status'}
+            </label>
             {property.status ? (
               <Badge variant={getStatusBadge(property.status).variant}>
                 {getStatusBadge(property.status).text}
@@ -281,7 +291,9 @@ const OrgPropertyDetail = () => {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Location</label>
+            <label className="block text-sm font-medium text-foreground mb-1">
+              {isBankAsset(property.assetCategory) ? 'Custody Location' : 'Location'}
+            </label>
             <p className="text-sm text-card-foreground">{property.city || property.location_city || property.location || 'N/A'}</p>
           </div>
           <div>
@@ -560,7 +572,7 @@ const OrgPropertyDetail = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-card-foreground flex items-center">
                 <FileText className="w-5 h-5 mr-2" />
-                Brochure
+                {getDocumentLabel(property.assetCategory, 'brochure')}
               </h3>
             </div>
             <div className="p-4 bg-accent rounded-lg border border-border">
@@ -600,7 +612,7 @@ const OrgPropertyDetail = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-card-foreground flex items-center">
                 <FileText className="w-5 h-5 mr-2" />
-                Floor Plan
+                {getDocumentLabel(property.assetCategory, 'floorPlan')}
               </h3>
             </div>
             <div className="p-4 bg-accent rounded-lg border border-border">
@@ -758,7 +770,10 @@ const OrgPropertyDetail = () => {
                 <span>Back to Dashboard</span>
               </Button>
               <div>
-                <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || 'Property Details'}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-card-foreground">{property.title || property.name || (isBankAsset(property.assetCategory) ? 'Asset Details' : 'Property Details')}</h1>
+                  <AssetCategoryBadge category={property.assetCategory} type={property.type} />
+                </div>
                 <p className="text-sm text-muted-foreground">{property.city || property.location_city || property.location || 'Location not specified'}</p>
               </div>
             </div>
